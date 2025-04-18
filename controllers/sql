@@ -1,0 +1,54 @@
+CREATE TABLE leads (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    mobile_number VARCHAR(15) NOT NULL UNIQUE,
+    whatsapp_mobile_number VARCHAR(15) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fetched_by INT,
+    fetched_at DATETIME, 
+    under_us_status ENUM('pending', 'approved', 'rejected') DEFAULT NULL,
+    under_us_requested_at DATETIME DEFAULT NULL,
+    code_request_status ENUM('pending', 'approved', 'rejected') DEFAULT NULL,
+    aoma_request_status ENUM('pending', 'approved', 'rejected') DEFAULT NULL,
+    sip_request_status ENUM('pending', 'approved', 'rejected') DEFAULT NULL,
+    ms_team_status ENUM('pending', 'approved', 'rejected') DEFAULT NULL,
+    code_requested_at DATETIME DEFAULT NULL,
+    deleted_by_rm TINYINT(1) DEFAULT 0
+  );
+  
+
+
+
+
+  INSERT INTO leads (name, mobile_number, whatsapp_mobile_number, under_us_status, code_request_status, deleted_by_rm)
+VALUES
+('Lead 1', '9876543001', '9998887001', 'pending', 'pending', 0),
+('Lead 2', '9876543002', '9998887002', 'pending', 'pending', 0),
+('Lead 3', '9876543003', '9998887003', 'pending', 'pending', 0),
+('Lead 4', '9876543004', '9998887004', 'pending', 'pending', 0),
+('Lead 5', '9876543005', '9998887005', 'pending', 'pending', 0),
+('Lead 6', '9876543006', '9998887006', 'pending', 'pending', 0),
+('Lead 7', '9876543007', '9998887007', 'pending', 'pending', 0),
+('Lead 8', '9876543008', '9998887008', 'pending', 'pending', 0),
+('Lead 9', '9876543009', '9998887009', 'pending', 'pending', 0),
+('Lead 10', '9876543010', '9998887010', 'pending', 'pending', 0),
+('Lead 11', '9876543011', '9998887011', 'pending', 'pending', 0),
+('Lead 12', '9876543012', '9998887012', 'pending', 'pending', 0),
+('Lead 13', '9876543013', '9998887013', 'pending', 'pending', 0),
+('Lead 14', '9876543014', '9998887014', 'pending', 'pending', 0),
+('Lead 15', '9876543015', '9998887015', 'pending', 'pending', 0),
+('Lead 16', '9876543016', '9998887016', 'pending', 'pending', 0),
+('Lead 17', '9876543017', '9998887017', 'pending', 'pending', 0),
+('Lead 18', '9876543018', '9998887018', 'pending', 'pending', 0),
+('Lead 19', '9876543019', '9998887019', 'pending', 'pending', 0),
+('Lead 20', '9876543020', '9998887020', 'pending', 'pending', 0),
+('Lead 21', '9876543021', '9998887021', 'pending', 'pending', 0),
+('Lead 22', '9876543022', '9998887022', 'pending', 'pending', 0),
+('Lead 23', '9876543023', '9998887023', 'pending', 'pending', 0),
+('Lead 24', '9876543024', '9998887024', 'pending', 'pending', 0),
+('Lead 25', '9876543025', '9998887025', 'pending', 'pending', 0),
+('Lead 26', '9876543026', '9998887026', 'pending', 'pending', 0),
+('Lead 27', '9876543027', '9998887027', 'pending', 'pending', 0),
+('Lead 28', '9876543028', '9998887028', 'pending', 'pending', 0),
+('Lead 29', '9876543029', '9998887029', 'pending', 'pending', 0),
+('Lead 30', '9876543030', '9998887030', 'pending', 'pending', 0);
