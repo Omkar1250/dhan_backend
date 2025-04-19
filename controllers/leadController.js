@@ -166,7 +166,7 @@ exports.requestCodeApproval = async (req, res) => {
     }
 
     // Update status to 'requested'
-    await db.execute(`UPDATE leads SET code_status='requested' WHERE id=?`, [leadId]);
+    await db.execute(`UPDATE leads SET code_request_status='requested' WHERE id=?`, [leadId]);
 
     res.json({ success: true, message: 'Code approval request sent to admin' });
 
@@ -175,3 +175,110 @@ exports.requestCodeApproval = async (req, res) => {
   }
 };
 
+
+//aoma approval request
+exports.requestAOMAApproval = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const rmId = req.user.id;
+    const screenshotPath = req.file ? req.file.path : null;
+
+    // Check if the lead belongs to RM & is code approved
+    const [leadResult] = await db.execute(
+      `SELECT * FROM leads WHERE id = ? AND fetched_by = ? AND code_request_status = 'approved'`,
+      [leadId, rmId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not approved for Code' });
+    }
+
+    // Update status to 'requested', store screenshot path and request time
+    await db.execute(
+      `UPDATE leads SET aoma_request_status = 'requested', aoma_requested_at = NOW(), aoma_screenshot = ? WHERE id = ?`,
+      [screenshotPath, leadId]
+    );
+
+    res.json({ success: true, message: 'AOMA approval request sent to admin' });
+
+  } catch (err) {
+    console.error("Error requesting AOMA approval:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+//activation approval request
+exports.requestActivationApproval = async (req, res) => {
+  const leadId = req.params.leadId;
+  const rmId = req.user.id;
+  const screenshotPath = req.file ? req.file.path : null;
+  try {
+    // Check lead belongs to RM & is aoma approved
+    const [leadResult] = await db.execute(
+      'SELECT * FROM leads WHERE id=? AND fetched_by=? AND aoma_request_status="approved"',
+      [leadId, rmId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not approved for AOMA' });
+    }
+
+
+    // Update lead status and screenshot
+    await db.execute(
+      `UPDATE leads 
+       SET activation_request_status = 'requested', 
+           activation_requested_at = NOW(), 
+           activation_screenshot = ? 
+       WHERE id = ?`,
+      [screenshotPath, leadId]
+    );
+
+    res.json({ success: true, message: 'Activation request sent to admin' });
+
+  } catch (error) {
+    console.error('Error requesting Activation approval:', error);
+    res.status(500).json({ success: false, message: 'Server error while requesting Activation approval' });
+  }
+};
+
+
+//ms team login request approval
+exports.requestMsTeamsLogin = async (req, res) => {
+  const leadId = req.params.leadId;
+  const rmId = req.user.id;
+
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: "Screenshot is required." });
+  }
+
+  const screenshot = req.file.path;
+
+  try {
+    // Ensure the lead is code approved & fetched by this RM
+    const [leadResult] = await db.execute(
+      `SELECT * FROM leads WHERE id = ? AND fetched_by = ? AND code_request_status = 'approved'`,
+      [leadId, rmId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not Code Approved' });
+    }
+
+    // Update screenshot, status and time
+    await db.execute(
+      `UPDATE leads SET 
+        ms_teams_screenshot = ?, 
+        ms_teams_request_status = 'requested', 
+        ms_teams_login_requested_at = NOW()
+       WHERE id = ?`,
+      [screenshot, leadId]
+    );
+
+    res.json({ success: true, message: 'MS Teams Login request sent to admin.' });
+
+  } catch (error) {
+    console.error('Error requesting MS Teams login:', error);
+    res.status(500).json({ success: false, message: 'Server error while requesting login.' });
+  }
+};

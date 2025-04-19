@@ -13,6 +13,8 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(cookieParser());
+app.use('/uploads/aoma', express.static('uploads/aoma'));
+
 
 // // Admin routes
 app.use('/api/v1', adminRoutes);

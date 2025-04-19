@@ -79,4 +79,162 @@ exports.approveCodeRequest = async (req, res) => {
   }
 };
 
-  
+
+
+//aoma approve handler
+exports.approveAOMARequest = async (req, res) => {
+  const leadId = req.params.leadId;
+
+  try {
+    // Check if lead exists and is pending for AOMA approval
+    const [leadResult] = await db.execute(
+      'SELECT * FROM leads WHERE id = ? AND aoma_request_status = "requested"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not in requested status.' });
+    }
+
+    const lead = leadResult[0];
+
+    // Get AOMA Approved point value
+    const [pointResult] = await db.execute(
+      'SELECT points FROM conversion_points WHERE action = "aoma_approved"'
+    );
+
+    const pointsToCredit = pointResult[0].points;
+
+    // Credit points to RM's wallet
+    await db.execute(
+      'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+      [pointsToCredit, lead.fetched_by]
+    );
+
+    // Log transaction
+    await db.execute(
+      'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+      [lead.fetched_by, lead.id, 'aoma_approved', pointsToCredit]
+    );
+
+    // Update lead status to 'approved' and set approved time
+    await db.execute(
+      'UPDATE leads SET aoma_request_status = "approved", aoma_approved_at = NOW() WHERE id = ?',
+      [leadId]
+    );
+
+    res.status(200).json({ success: true, message: 'AOMA Request Approved and points credited.' });
+
+  } catch (error) {
+    console.error('Error approving AOMA Request:', error);
+    res.status(500).json({ success: false, message: 'Server error while approving AOMA Request.' });
+  }
+};
+
+
+
+//Approve activation request
+exports.approveActivationRequest = async (req, res) => {
+  const leadId = req.params.leadId;
+
+  try {
+    // Check if lead exists and is pending for Activation approval
+    const [leadResult] = await db.execute(
+      'SELECT * FROM leads WHERE id = ? AND activation_request_status = "requested"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not in Activation requested status.' });
+    }
+
+    const lead = leadResult[0];
+
+    // Get Activation Approved point value
+    const [pointResult] = await db.execute(
+      'SELECT points FROM conversion_points WHERE action = "activation_approved"'
+    );
+
+    const pointsToCredit = pointResult[0].points;
+
+    // Credit points to RM's wallet
+    await db.execute(
+      'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+      [pointsToCredit, lead.fetched_by]
+    );
+
+    // Log transaction
+    await db.execute(
+      'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+      [lead.fetched_by, lead.id, 'activation_approved', pointsToCredit]
+    );
+
+    // Update lead status to 'approved' and set approved time
+    await db.execute(
+      'UPDATE leads SET activation_request_status = "approved", activation_approved_at = NOW() WHERE id = ?',
+      [leadId]
+    );
+
+    res.status(200).json({ success: true, message: 'Activation Request Approved and points credited.' });
+
+  } catch (error) {
+    console.error('Error approving Activation Request:', error);
+    res.status(500).json({ success: false, message: 'Server error while approving Activation Request.' });
+  }
+};
+
+//approve ms teams request
+exports.approveMsTeamsLoginRequest = async (req, res) => {
+  const leadId = req.params.leadId;
+
+  try {
+    // Check if lead exists and is pending for MS Teams login approval
+    const [leadResult] = await db.execute(
+      'SELECT * FROM leads WHERE id = ? AND ms_teams_request_status = "requested"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not in MS Teams requested status.' });
+    }
+
+    const lead = leadResult[0];
+
+    // Get MS Teams Login Approved point value
+    const [pointResult] = await db.execute(
+      'SELECT points FROM conversion_points WHERE action = "ms_teams_login_approved"'
+    );
+
+    const pointsToCredit = pointResult[0].points;
+
+    // Credit points to RM's wallet
+    await db.execute(
+      'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+      [pointsToCredit, lead.fetched_by]
+    );
+
+    // Log transaction for points credited
+    await db.execute(
+      'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+      [lead.fetched_by, lead.id, 'ms_teams_login_approved', pointsToCredit]
+    );
+
+    // Update lead status to 'approved' and set approved time
+    await db.execute(
+      'UPDATE leads SET ms_teams_request_status = "approved", ms_teams_approved_at = NOW() WHERE id = ?',
+      [leadId]
+    );
+
+    // Move lead to the RM's MS Teams list
+    await db.execute(
+      'INSERT INTO ms_teams_list (user_id, lead_id, ms_teams_screenshot) VALUES (?, ?, ?)',
+      [lead.fetched_by, leadId, lead.ms_teams_screenshot]
+    );
+
+    res.status(200).json({ success: true, message: 'MS Teams Login Request Approved and points credited.' });
+
+  } catch (error) {
+    console.error('Error approving MS Teams Login Request:', error);
+    res.status(500).json({ success: false, message: 'Server error while approving MS Teams Login Request.' });
+  }
+};
