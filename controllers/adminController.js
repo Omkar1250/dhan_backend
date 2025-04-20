@@ -238,3 +238,73 @@ exports.approveMsTeamsLoginRequest = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error while approving MS Teams Login Request.' });
   }
 };
+
+
+//approve sip request
+exports.approveSipRequest = async (req, res) => {
+  const { leadId } = req.params;
+
+  try {
+    const [leadResult] = await db.execute(
+      'SELECT * FROM leads WHERE id = ? AND sip_request_status = "requested"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not in requested status.' });
+    }
+
+    const lead = leadResult[0];
+
+    const [pointResult] = await db.execute(
+      'SELECT points FROM conversion_points WHERE action = "sip_approved"'
+    );
+
+    const pointsToCredit = pointResult[0]?.points;
+
+    // Credit points
+    await db.execute(
+      'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+      [pointsToCredit, lead.fetched_by]
+    );
+
+    // Log transaction
+    await db.execute(
+      'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+      [lead.fetched_by, lead.id, 'sip_approved', pointsToCredit]
+    );
+
+    // Update lead status
+    await db.execute(
+      'UPDATE leads SET sip_request_status = "approved" WHERE id = ?',
+      [leadId]
+    );
+
+    res.json({ success: true, message: 'SIP Request approved and points credited.' });
+  } catch (err) {
+    console.error('Error approving SIP Request:', err);
+    res.status(500).json({ success: false, message: 'Server error while approving SIP Request.' });
+  }
+};
+
+
+//reject sip request
+exports.rejectSipRequest = async (req, res) => {
+  const { leadId } = req.params;
+
+  try {
+    await db.execute(
+      'UPDATE leads SET sip_request_status = "rejected" WHERE id = ?',
+      [leadId]
+    );
+
+    res.json({ success: true, message: 'SIP Request rejected.' });
+  } catch (err) {
+    console.error('Error rejecting SIP Request:', err);
+    res.status(500).json({ success: false, message: 'Server error while rejecting SIP Request.' });
+  }
+};
+
+
+
+

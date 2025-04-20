@@ -25,4 +25,12 @@ router.post('/approve-activation/:leadId',auth, isAdmin, adminController.approve
 //Route to approve ms teams
 router.post('/approve-ms-teams/:leadId', auth, isAdmin, adminController.approveMsTeamsLoginRequest)
 
+
+//Route to approve sip request
+router.post('/approve-sip-request/:leadId', auth, isAdmin, adminController.approveSipRequest);
+
+//Route to reject ms sip request
+router.post('/reject-sip-request/:leadId', auth, isAdmin, adminController.rejectSipRequest);
+
+
 module.exports =router  

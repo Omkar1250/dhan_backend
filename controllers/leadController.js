@@ -282,3 +282,34 @@ exports.requestMsTeamsLogin = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error while requesting login.' });
   }
 };
+
+
+//Request sip interest
+exports.requestSipInterest = async (req, res) => {
+  const { leadId } = req.params;
+  const rmId = req.user.id;
+
+  try {
+    const [lead] = await db.execute(
+      'SELECT * FROM leads WHERE id = ? AND fetched_by = ? AND code_request_status = "approved"',
+      [leadId, rmId]
+    );
+
+    if (lead[0]?.sip_request_status !== 'none') {
+      return res.status(400).json({ success: false, message: 'Already requested or processed.' });
+    }
+
+    await db.execute(
+      `UPDATE leads SET 
+        sip_request_status = 'requested', 
+        sip_requested_at = NOW()
+      WHERE id = ?`,
+      [leadId]
+    );
+
+    res.json({ success: true, message: 'SIP Interest Request sent.' });
+  } catch (err) {
+    console.error('Error sending SIP request:', err);
+    res.status(500).json({ success: false, message: 'Server error while sending SIP request.' });
+  }
+};

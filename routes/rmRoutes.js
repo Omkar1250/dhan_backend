@@ -47,6 +47,8 @@ router.post('/request-ms-teams-activation/:leadId',
     auth, isRm, upload.single('screenshot'), 
     leadController.requestMsTeamsLogin)
 
+    //Route to request sip
+router.post('/request-sip/:leadId', auth, isRm, leadController.requestSipInterest);
 
   //Route to get client list
   router.get('/get-rm-clients',auth,isAdmin, rmController.getYourClientList)
