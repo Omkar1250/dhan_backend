@@ -76,12 +76,11 @@ exports.fetchLeadsRMs = async (req, res) => {
 
     // Use template literals for LIMIT and OFFSET
     const query = `
-      SELECT * FROM leads 
-      WHERE fetched_by = ? 
-      ORDER BY id DESC 
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-    
+  SELECT * FROM leads 
+  WHERE fetched_by = ? 
+  ORDER BY fetched_at ASC 
+  LIMIT ${limit} OFFSET ${offset}
+`;
     // Logging query and parameters to ensure they're correct
     console.log('Executing query:', query, 'with parameters:', [rmId]);
 
@@ -122,13 +121,35 @@ exports.requestUnderUsApproval = async (req, res) => {
       });
     }
 
-    // Update the lead status to 'pending' for under us approval
+    // Check if lead is already in 'pending' or 'approved' or 'rejected' status
+    const [check] = await db.execute(`
+      SELECT under_us_status FROM leads WHERE id = ? AND fetched_by = ?
+    `, [leadId, rmId]);
+
+    if (check.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found or not authorized."
+      });
+    }
+
+    const currentStatus = check[0].under_us_status;
+
+    if (["pending", "approved", "rejected"].includes(currentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `You have already requested Under Us approval. Current status: '${currentStatus}'.`
+      });
+    }
+
+    // Proceed to update only if not requested yet
     const [result] = await db.execute(`
       UPDATE leads
       SET under_us_status = 'pending', under_us_requested_at = NOW()
       WHERE id = ? AND fetched_by = ?
     `, [leadId, rmId]);
 
+    // Double-checking affectedRows (should be 1)
     if (result.affectedRows === 0) {
       return res.status(404).json({
         success: false,
@@ -146,6 +167,7 @@ exports.requestUnderUsApproval = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 
 
 
@@ -311,5 +333,63 @@ exports.requestSipInterest = async (req, res) => {
   } catch (err) {
     console.error('Error sending SIP request:', err);
     res.status(500).json({ success: false, message: 'Server error while sending SIP request.' });
+  }
+};
+
+//delete lead
+exports.deleteLead = async (req, res) => {
+const { leadId } = req.params; // Assuming the lead ID is passed in the URL
+const  rmId  = req.user.id; // Assuming the RM ID is passed in the request body
+
+if (!leadId || !rmId) {
+  return res.status(400).json({
+    success: false,
+    message: "Lead ID or RM ID is missing."
+  });
+}
+  try {
+    // Check if lead exists and if RM has fetched this lead
+    const [check] = await db.execute(`
+      SELECT under_us_status FROM leads WHERE id = ? AND fetched_by = ?
+    `, [leadId, rmId]);
+
+    if (check.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found or not authorized."
+      });
+    }
+
+    const currentStatus = check[0].under_us_status;
+
+    // Check if lead is in a status where deletion is allowed
+    if (["pending", "approved", "rejected"].includes(currentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Lead cannot be deleted because it has a status of '${currentStatus}'.`
+      });
+    }
+
+    // Proceed to delete the lead if status is not one of the above
+    const [result] = await db.execute(`
+      DELETE FROM leads WHERE id = ? AND fetched_by = ?
+    `, [leadId, rmId]);
+
+    // Double-checking affectedRows (should be 1)
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found or you're not authorized to delete it."
+      });
+    }
+
+    // Success response
+    res.status(200).json({
+      success: true,
+      message: "Lead deleted successfully."
+    });
+  } catch (error) {
+    console.error("Error deleting lead:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };

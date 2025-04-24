@@ -19,6 +19,9 @@ router.get('/rm-leads',auth, leadController.fetchLeadsRMs);
 // Route to request Under Us approval for a lead
 router.post('/under-us-request', auth, leadController.requestUnderUsApproval);
 
+//delete lead
+router.delete('/delete-lead/:leadId', auth, leadController.deleteLead)
+
 // Route to request Under Us approval for a lead
 router.post('/coded-request', auth, leadController.requestCodeApproval);
 
