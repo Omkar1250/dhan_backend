@@ -7,7 +7,7 @@ const { auth, isAdmin, isRm } = require('../middlewares/auth');  // Destructure 
 
 //auth route
 router.post('/admin/signup', adminAuthController.adminSignup)
-router.post('/admin/login',adminAuthController.adminLogin )
+router.post('/login',adminAuthController.loginUser )
 
 // Route for Admin to approve or reject the Under Us request
 router.post('/under-us-approval', auth, isAdmin, adminController.handleUnderUsApproval);

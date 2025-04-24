@@ -1,6 +1,93 @@
 const bcrypt = require('bcrypt');
 const db = require('../config/db');
 const jwt = require('jsonwebtoken');
+require("dotenv").config();
+
+
+const { generateToken } = require("../utils/generateToken");
+
+
+exports.loginUser = async (req, res) => {
+  try {
+    const { personal_number, password } = req.body;
+
+    let user = null;
+    let role = null;
+
+    // Check in admins table
+    const [adminRows] = await db.execute(
+      "SELECT * FROM admins WHERE personal_number = ?",
+      [personal_number]
+    );
+
+    if (adminRows.length > 0) {
+      user = adminRows[0];
+      role = "admin";
+
+      // Compare hashed password
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(401).json({ success: false, message: "Invalid credentials" });
+      }
+
+    } else {
+      // Check in users table
+      const [rmRows] = await db.execute(
+        "SELECT * FROM users WHERE personal_number = ?",
+        [personal_number]
+      );
+
+      if (rmRows.length > 0) {
+        user = rmRows[0];
+        role = "rm";
+
+        // Compare plain text password directly
+        if (user.password !== password) {
+          return res.status(401).json({ success: false, message: "Invalid credentials" });
+        }
+
+      }
+    }
+
+    // If no user found
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Attach role to user object
+    user.role = role;
+
+    const token = generateToken(user);
+    console.log("token from login handler", token)
+
+    const options ={
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      httpOnly:true
+    }
+   console.log(options)
+    res.cookie("token", token, options).status(200).json({
+      success: true,
+      message: "Login successful",
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        personal_number: user.personal_number,
+        role,
+      },
+    });
+
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ success: false, message: "Login failed" });
+  }
+};
+
+
+
+
+
+
 exports.adminSignup = async (req, res) => {
   try {
     const { name, personal_number, ck_number, userid, password } = req.body;
@@ -22,61 +109,65 @@ exports.adminSignup = async (req, res) => {
 };
 
 // Admin Login via personal number
-exports.adminLogin = async (req, res) => {
-  try {
-    const { personal_number, password } = req.body;
+// exports.adminLogin = async (req, res) => {
+//   try {
+//     const { personal_number, password } = req.body;
 
-    if (!personal_number || !password) {
-      return res.status(400).json({ error: 'Please provide personal number and password.' });
-    }
+//     if (!personal_number || !password) {
+//       return res.status(400).json({ error: 'Please provide personal number and password.' });
+//     }
 
-    // Check if admin exists
-    const [rows] = await db.execute('SELECT * FROM admins WHERE personal_number = ?', [personal_number]);
+//     // Check if admin exists
+//     const [rows] = await db.execute('SELECT * FROM admins WHERE personal_number = ?', [personal_number]);
 
-    if (rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials.' });
-    }
+//     if (rows.length === 0) {
+//       return res.status(401).json({ error: 'Invalid credentials.' });
+//     }
 
-    const admin = rows[0];
+//     const admin = rows[0];
 
-    // Compare hashed password
-    const isMatch = await bcrypt.compare(password, admin.password);
+//     // Compare hashed password
+//     const isMatch = await bcrypt.compare(password, admin.password);
 
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials.' });
-    }
+//     if (!isMatch) {
+//       return res.status(401).json({
+//         success:false,
+//         error: 'Invalid credentials.' });
+//     }
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: admin.id, personal_number: admin.personal_number, role: 'admin' },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+//     // Generate JWT token
+//     const token = jwt.sign(
+//       { id: admin.id, personal_number: admin.personal_number, role: 'admin' },
+//       process.env.JWT_SECRET,
+//       { expiresIn: '24h' }
+//     );
 
-    // Cookie options
-    const options = {
-      expires: new Date(Date.now() + 24 * 60 * 60 * 1000),  // 1 day validity
-      httpOnly: true,
-      sameSite: 'lax',  // good for CSRF protection
-      secure: false     // set to true if using HTTPS
-    };
+//     // Cookie options
+//     const options = {
+//       expires: new Date(Date.now() + 24 * 60 * 60 * 1000),  // 1 day validity
+//       httpOnly: true,
+//       sameSite: 'lax',  // good for CSRF protection
+//       secure: false     // set to true if using HTTPS
+//     };
 
-    // Set cookie + respond
-    res.cookie('token', token, options).status(200).json({
-      success: true,
-      message: 'Login successful',
-      admin: {
-        id: admin.id,
-        name: admin.name,
-        personal_number: admin.personal_number,
-        created_at: admin.created_at
-      }
-    });
+//     // Set cookie + respond
+//     res.cookie('token', token, options).status(200).json({
+//       success: true,
+//       message: 'Login successful',
+//       role:'admin',
+//       admin: {
+//         id: admin.id,
+//         name: admin.name,
+//         token,
+//         personal_number: admin.personal_number,
+//         created_at: admin.created_at
+//       }
+//     });
 
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// };
 
 
 //Rm creation
@@ -132,63 +223,64 @@ exports.createRm = async (req, res) => {
 
 
 //Rm login
-exports.rmLogin = async (req, res) => {
-  try {
-    const { personal_number, password } = req.body;
+// exports.rmLogin = async (req, res) => {
+//   try {
+//     const { personal_number, password } = req.body;
 
-    if (!personal_number || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "All fields are required"
-      });
-    }
+//     if (!personal_number || !password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "All fields are required"
+//       });
+//     }
 
-    // Find RM user by personal_number
-    const [rows] = await db.execute(`SELECT * FROM users WHERE personal_number = ? AND role = 'rm'`, [personal_number]);
+//     // Find RM user by personal_number
+//     const [rows] = await db.execute(`SELECT * FROM users WHERE personal_number = ? AND role = 'rm'`, [personal_number]);
 
-    if (rows.length === 0) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials.' });
-    }
+//     if (rows.length === 0) {
+//       return res.status(401).json({ success: false, message: 'Invalid credentials.' });
+//     }
 
-    const rmUser = rows[0];
+//     const rmUser = rows[0];
 
-    // Check password (plain comparison)
-    if (password !== rmUser.password) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials.' });
-    }
+//     // Check password (plain comparison)
+//     if (password !== rmUser.password) {
+//       return res.status(401).json({ success: false, message: 'Invalid credentials.' });
+//     }
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: rmUser.id, personal_number: rmUser.personal_number, role: 'rm' },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+//     // Generate JWT token
+//     const token = jwt.sign(
+//       { id: rmUser.id, personal_number: rmUser.personal_number, role: 'rm' },
+//       process.env.JWT_SECRET,
+//       { expiresIn: '24h' }
+//     );
 
-    // Cookie options
-    const options = {
-      expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: false  // true in production
-    };
+//     // Cookie options
+//     const options = {
+//       expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+//       httpOnly: true,
+//       sameSite: 'lax',
+//       secure: false  // true in production
+//     };
 
-    // Set cookie and send response
-    res.cookie('token', token, options).status(200).json({
-      success: true,
-      message: 'Login successful',
-      token,
-      rmUser: {
-        id: rmUser.id,
-        name: rmUser.name,
-        personal_number: rmUser.personal_number,
-        upi_id: rmUser.upi_id
-      }
-    });
+//     // Set cookie and send response
+//     res.cookie('token', token, options).status(200).json({
+//       success: true,
+//       message: 'Login successful',
+//       token,
+//       role:'rm',
+//       rmUser: {
+//         id: rmUser.id,
+//         name: rmUser.name,
+//         personal_number: rmUser.personal_number,
+//         upi_id: rmUser.upi_id
+//       }
+//     });
 
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
+//   } catch (error) {
+//     res.status(500).json({ error: error.message });
+//   }
+// };
 
 
 
