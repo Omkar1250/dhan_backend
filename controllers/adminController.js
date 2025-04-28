@@ -51,7 +51,7 @@ exports.approveCodeRequest = async (req, res) => {
       'SELECT points FROM conversion_points WHERE action = "code_approved"'
     );
 
-    const pointsToCredit = pointResult[0].points;
+    const pointsToCredit = pointResult[0]?.points || 0;
 
     // Credit points to RM's wallet
     await db.execute(
@@ -65,19 +65,30 @@ exports.approveCodeRequest = async (req, res) => {
       [lead.fetched_by, lead.id, 'code_approved', pointsToCredit]
     );
 
-    // Update lead status to 'approved' and set approved time
+    // Update lead status:
+    // - code_request_status -> approved
+    // - code_approved_at -> now
+    // - sip_request_status -> pending
+    // - ms_teams_request_status -> pending
     await db.execute(
-      'UPDATE leads SET code_request_status = "approved", code_approved_at = NOW() WHERE id = ?',
+      `UPDATE leads 
+       SET 
+         code_request_status = 'approved', 
+         code_approved_at = NOW(), 
+         sip_request_status = 'pending',
+         ms_teams_request_status = 'pending'
+       WHERE id = ?`,
       [leadId]
     );
 
-    res.status(200).json({ success: true, message: 'Code Request Approved and points credited.' });
+    res.status(200).json({ success: true, message: 'Code Request Approved, points credited, SIP/MS Teams status initialized.' });
 
   } catch (error) {
     console.error('Error approving Code Request:', error);
     res.status(500).json({ success: false, message: 'Server error while approving Code Request.' });
   }
 };
+
 
 
 
@@ -202,7 +213,7 @@ exports.approveMsTeamsLoginRequest = async (req, res) => {
 
     // Get MS Teams Login Approved point value
     const [pointResult] = await db.execute(
-      'SELECT points FROM conversion_points WHERE action = "ms_teams_login_approved"'
+      'SELECT points FROM conversion_points WHERE action = "ms_teams_approved"'
     );
 
     const pointsToCredit = pointResult[0].points;
@@ -225,11 +236,6 @@ exports.approveMsTeamsLoginRequest = async (req, res) => {
       [leadId]
     );
 
-    // Move lead to the RM's MS Teams list
-    await db.execute(
-      'INSERT INTO ms_teams_list (user_id, lead_id, ms_teams_screenshot) VALUES (?, ?, ?)',
-      [lead.fetched_by, leadId, lead.ms_teams_screenshot]
-    );
 
     res.status(200).json({ success: true, message: 'MS Teams Login Request Approved and points credited.' });
 

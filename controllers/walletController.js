@@ -46,7 +46,7 @@ exports.adminPayout = async (req, res) => {
     try {
       // Deduct points
       await db.execute(
-        'UPDATE users SET wallet = wallet - ? WHERE id = ?',
+        'UPDATE users SET wallet = wallet - ? WHERE user_id = ?',
         [pointsToDeduct, rmId]
       );
   
@@ -65,3 +65,57 @@ exports.adminPayout = async (req, res) => {
     }
   };
   
+
+  //RM PAYEMENT OVERVIEW
+ 
+  
+  exports.getPaymentsOverview = async (req, res) => {
+    try {
+      const rmId = req.user.id;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 5;
+      const offset = (page - 1) * limit;
+  
+      console.log("userId:", rmId, "limit:", limit, "offset:", offset); // Debugging log
+  
+      // Fetch the total number of transactions for this user
+      const [totalResult] = await db.execute(
+        'SELECT COUNT(*) AS total FROM wallet_transactions WHERE user_id = ?',
+        [rmId]
+      );
+      const totalTransactions = totalResult[0].total;
+      const totalPages = Math.ceil(totalTransactions / limit); // Calculate total pages
+  
+      // Fetch the total points for all transactions
+      const [totalPointsResult] = await db.execute(
+        'SELECT SUM(points) AS totalPoints FROM wallet_transactions WHERE user_id = ?',
+        [rmId]
+      );
+      const totalPoints = totalPointsResult[0].totalPoints || 0; // Default to 0 if null
+  
+      // Fetch the paginated transaction history along with the lead name
+      const query = `
+        SELECT wt.*, l.name AS lead_name
+        FROM wallet_transactions wt
+        LEFT JOIN leads l ON wt.lead_id = l.id
+        WHERE wt.user_id = ?
+        ORDER BY wt.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+  
+      const [transactions] = await db.execute(query, [rmId]);
+  
+      res.status(200).json({
+        success: true,
+        message: "Payments overview fetched successfully.",
+        transactions,
+        totalTransactions,
+        totalPages,
+        currentPage: page,
+        totalPoints, // Include total points in the response
+      });
+    } catch (error) {
+      console.error("Error fetching transactions:", error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  };

@@ -3,6 +3,7 @@ const router = express.Router();
 const adminController = require('../controllers/Auth');
 const leadController = require('../controllers/leadController');
 const rmController = require('../controllers/rmController')
+const referLeadRmController = require("../controllers/referLead")
 const upload = require('../middlewares/upload');
 const { auth, isAdmin, isRm } = require('../middlewares/auth');  // Destructure to simplify
 
@@ -13,6 +14,14 @@ router.get('/rm/all-rms', auth, isAdmin, adminController.getAllRms);  // Protect
 router.get('/rm/:id', auth, isAdmin, adminController.getSingleRm);  // Protect with admin check
 router.delete('/delete-rm/:id', auth, isAdmin, adminController.rmDelete);  // Protect with admin check
 
+
+//refer lead routes
+router.post('/rm-refer-lead', auth , referLeadRmController.referFriendLead)
+
+router.post('/rm-check-mobile-number', auth, referLeadRmController.checkMobileNumber)
+router.get('/rm-refer-lead-list', auth, referLeadRmController.fetchReferLeadsRMs)
+
+
 // Leads routes
 router.get('/leads/fetch-leads', auth, isRm, leadController.fetchLeads);
 router.get('/rm-leads',auth, leadController.fetchLeadsRMs);
@@ -22,9 +31,19 @@ router.post('/under-us-request', auth, leadController.requestUnderUsApproval);
 //delete lead
 router.delete('/delete-lead/:leadId', auth, leadController.deleteLead)
 
+//delete and visible to admin
+router.delete('/lead-delete/:leadId', auth, leadController.LeadDeleteToAdmin);
+
 // Route to request Under Us approval for a lead
 router.post('/coded-request', auth, leadController.requestCodeApproval);
 
+
+router.get('/get-under-us-approved-leads', auth, leadController.fetchLeadsUnderUsapproved)
+router.get('/get-coded-approved-leads', auth, leadController.fetchCodeApprovedLeads)
+router.get('/get-aoma-approved-leads', auth, leadController.fetchAOMAApprovedLeads)
+router.get('/get-activation-approved-list', auth, leadController.fetchActivationApprovedLeads )
+router.get('/get-ms-teams-approved-list', auth, leadController.fetchMsTeamsApprovedLeads )
+router.get('/get-sip-approved-list', auth, leadController.fetchSipApprovedLeads )
 
 //Route to request aoma
 
@@ -54,7 +73,7 @@ router.post('/request-ms-teams-activation/:leadId',
 router.post('/request-sip/:leadId', auth, isRm, leadController.requestSipInterest);
 
   //Route to get client list
-  router.get('/get-rm-clients',auth,isAdmin, rmController.getYourClientList)
+router.get('/get-rm-clients',auth,isAdmin, rmController.getYourClientList)
   
 
 module.exports = router;

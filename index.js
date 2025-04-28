@@ -6,6 +6,7 @@ const adminRoutes= require('./routes/adminRoutes')
 const rmRoutes = require('./routes/rmRoutes')
 const leadRoutes = require('./routes/rmRoutes')
 const walletRoutes = require('./routes/walletRoutes')
+const AnalyticRoutes = require('./routes/analytics')
 const PORT = process.env.PORT || 5000;
 const app = express();
 app.use(cors({
@@ -23,5 +24,6 @@ app.use('/api/v1', adminRoutes);
 app.use('/api/v1', rmRoutes);
 app.use('/api/v1', leadRoutes);
 app.use('/api/v1', walletRoutes)
+app.use('/api/v1', AnalyticRoutes);
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));

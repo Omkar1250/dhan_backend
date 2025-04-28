@@ -13,6 +13,7 @@ exports.loginUser = async (req, res) => {
 
     let user = null;
     let role = null;
+    let ck_number = null
 
     // Check in admins table
     const [adminRows] = await db.execute(
@@ -72,6 +73,8 @@ exports.loginUser = async (req, res) => {
       user: {
         id: user.id,
         name: user.name,
+        ck_number: user.ck_number,
+        user_id: user.userid,
         personal_number: user.personal_number,
         role,
       },
