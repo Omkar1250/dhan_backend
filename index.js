@@ -10,7 +10,7 @@ const AnalyticRoutes = require('./routes/analytics')
 const PORT = process.env.PORT || 5000;
 const app = express();
 app.use(cors({
-    origin: ["http://localhost:3000", "https://cyberking-capital.onrender.com"] , // your React app domain
+    origin: ["http://localhost:3000", "https://dashboardcyberking.netlify.app"] , // your React app domain
     credentials: true  
 }));
 app.use(express.json());
