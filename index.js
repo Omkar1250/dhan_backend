@@ -10,7 +10,7 @@ const AnalyticRoutes = require('./routes/analytics')
 const PORT = process.env.PORT || 5000;
 const app = express();
 app.use(cors({
-    origin: `http://localhost:3000`,  // your React app domain
+    origin: ["http://localhost:3000", "https://cyberking-capital.onrender.com"] , // your React app domain
     credentials: true  
 }));
 app.use(express.json());
@@ -25,5 +25,12 @@ app.use('/api/v1', rmRoutes);
 app.use('/api/v1', leadRoutes);
 app.use('/api/v1', walletRoutes)
 app.use('/api/v1', AnalyticRoutes);
+
+app.get("/", (req, res) => {
+    return res.json({
+        success: true,
+        message: 'Your server is up and running...',
+    });
+});
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
