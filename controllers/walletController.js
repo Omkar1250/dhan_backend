@@ -46,7 +46,7 @@ exports.adminPayout = async (req, res) => {
     try {
       // Deduct points
       await db.execute(
-        'UPDATE users SET wallet = wallet - ? WHERE user_id = ?',
+        'UPDATE users SET wallet = wallet - ? WHERE id = ?',
         [pointsToDeduct, rmId]
       );
   
@@ -117,5 +117,54 @@ exports.adminPayout = async (req, res) => {
     } catch (error) {
       console.error("Error fetching transactions:", error);
       res.status(500).json({ success: false, error: error.message });
+    }
+  };
+
+  // Get all JRMs ordered by wallet points descending
+  exports.getAllJRMsByPoints = async (req, res) => {
+    try {
+      // Fetch JRMs sorted by wallet points
+      const [users] = await db.execute(
+        'SELECT id, name,personal_number,ck_number, wallet,userid, upi_id FROM users WHERE role = "rm" ORDER BY wallet DESC'
+      );
+   
+  
+      res.json({
+        success: true,
+        jrms: users,
+      });
+    } catch (error) {
+      console.error('Error fetching JRM list:', error);
+      res.status(500).json({ success: false, message: 'Could not fetch JRMs.' });
+    }
+  };
+  
+  exports.totalPoints = async (req, res) => {
+    const { rmId } = req.params;
+  
+    // Validate input
+    if (!rmId) {
+      return res.status(400).json({ success: false, message: "rmId is required." });
+    }
+  
+    try {
+      // Query to calculate total wallet points for the given rmId
+      const [rows] = await db.execute(
+        'SELECT SUM(points) AS totalPoints FROM wallet_transactions WHERE user_id = ?',
+        [rmId]
+      );
+  
+      // Extract total points or default to 0 if no records are found
+      const totalPoints = rows[0]?.totalPoints || 0;
+  
+      // Send success response
+      res.status(200).json({
+        success: true,
+        totalPoints: totalPoints,
+      });
+    } catch (error) {
+      // Log the error and send a failure response
+      console.error('Error calculating total points:', error);
+     
     }
   };

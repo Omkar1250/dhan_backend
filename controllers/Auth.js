@@ -360,7 +360,7 @@ exports.rmDelete = async (req, res) => {
 // Get all RMs
 exports.getAllRms = async (req, res) => {
   try {
-    const [rows] = await db.execute('SELECT id, name, personal_number, ck_number, userid, upi_id, created_at FROM users WHERE role = "rm"');
+    const [rows] = await db.execute('SELECT id, name, personal_number, ck_number, userid, upi_id, password, created_at FROM users WHERE role = "rm"');
 
     res.status(200).json({
       success: true,

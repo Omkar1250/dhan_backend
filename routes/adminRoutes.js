@@ -13,7 +13,7 @@ router.post('/login',adminAuthController.loginUser )
 router.post('/under-us-approval', auth, isAdmin, adminController.handleUnderUsApproval);
 
 // Route for Admin to approve or reject the Under Us request
-router.post('/code-approval/:leadId', auth, isAdmin, adminController.approveCodeRequest);
+router.post('/code-approval/:leadId', auth, isAdmin, adminController.handleCodeApproval);
 
 
 //Route for admin to approve aoma req
@@ -29,8 +29,24 @@ router.post('/approve-ms-teams/:leadId', auth, isAdmin, adminController.approveM
 //Route to approve sip request
 router.post('/approve-sip-request/:leadId', auth, isAdmin, adminController.approveSipRequest);
 
-//Route to reject ms sip request
-router.post('/reject-sip-request/:leadId', auth, isAdmin, adminController.rejectSipRequest);
+
+
+
+//Get usnder us requests
+router.get('/get-underus-requests', auth, adminController.getUsersUnderUsRequests)
+router.get('/get-code-requests', auth, adminController.getUsersCodeRequests)
+router.get('/get-aoma-requests', auth, adminController.getUsersAomaRequests)
+router.get('/get-activation-requests', auth, adminController.getUsersActivationRequests)
+router.get('/get-ms-teams-requests', auth, adminController.getUsersMSTeamsRequests)
+router.get('/get-sip-requests', auth, adminController.getUsersSIPRequests)
+router.get('/get-analytics', auth, adminController.getAnalyticsSummary)
+router.get('/get-all-jrm', auth, adminController.getAllJrm)
+
+router.get("/get-conversion-points", auth, isAdmin, adminController.getConversionPoints)
+router.put("/update-conversion-points", auth, isAdmin, adminController.updateConversionPoints)
+router.get("/get-delete-request-list", auth, isAdmin, adminController.getDeleteRequestsList)
+
+
 
 
 module.exports =router  

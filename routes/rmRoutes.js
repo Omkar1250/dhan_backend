@@ -8,12 +8,13 @@ const upload = require('../middlewares/upload');
 const { auth, isAdmin, isRm } = require('../middlewares/auth');  // Destructure to simplify
 
 // Admin routes
-router.post('/rm/signup', adminController.createRm);
+router.post('/rm/signup', upload.none(),auth, isAdmin, adminController.createRm);
 // router.post('/rm/login', adminController.rmLogin);  // Change GET to POST for login
-router.get('/rm/all-rms', auth, isAdmin, adminController.getAllRms);  // Protect with admin check
+router.get('/get/all-rms', auth, isAdmin, adminController.getAllRms);  // Protect with admin check
 router.get('/rm/:id', auth, isAdmin, adminController.getSingleRm);  // Protect with admin check
-router.delete('/delete-rm/:id', auth, isAdmin, adminController.rmDelete);  // Protect with admin check
+router.delete('/delete/rm/:id', auth, isAdmin, adminController.rmDelete);  // Protect with admin check
 
+router.put('/update/rm/:id', upload.none(), auth, isAdmin , adminController.rmUpdate)
 
 //refer lead routes
 router.post('/rm-refer-lead', auth , referLeadRmController.referFriendLead)

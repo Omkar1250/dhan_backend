@@ -15,5 +15,9 @@ router.post('/admin-payout',auth, isAdmin, walletController.adminPayout);
 //PAYEMENT OVERVIE RM
 router.get('/payement-overview',auth,  walletController.getPaymentsOverview);
 
+router.get('/rm-payment-list', auth, isAdmin, walletController.getAllJRMsByPoints )
+
+router.get('/total-points/:rmId', auth, isAdmin, walletController.totalPoints)
+
 
 module.exports = router;

@@ -282,7 +282,7 @@ exports.requestActivationApproval = async (req, res) => {
     }
 
     // Delete the old screenshot if present
-    const oldScreenshotPath = leadResult[0].aoma_screenshot;
+    const oldScreenshotPath = leadResult[0].activation_screenshot;
     if (oldScreenshotPath && fs.existsSync(oldScreenshotPath)) {
       fs.unlinkSync(oldScreenshotPath); // Delete the old file
     }
@@ -740,7 +740,8 @@ exports.fetchSipApprovedLeads = async (req, res) => {
 
 exports.LeadDeleteToAdmin = async (req, res) => {
   try {
-    const { leadId } = req.params;
+    const { leadId  } = req.params;
+    const { name, mobile_number, whatsapp_number} = req.body
     const rmId = req.user.id;
 
     // Check if the lead belongs to the RM
@@ -755,9 +756,9 @@ exports.LeadDeleteToAdmin = async (req, res) => {
 
     // Move the lead to the admin delete list (or mark it as deleted)
     await db.execute(
-      `INSERT INTO admin_delete_list (lead_id, deleted_by_rm, deleted_at)
-       VALUES (?, ?, NOW())`,
-      [leadId, rmId]
+      `INSERT INTO admin_delete_list (lead_id, deleted_by_rm, name, mobile_number, whatsapp_number, deleted_at)
+       VALUES (?, ?, ?, ?, ?, NOW())`,
+      [leadId, rmId, name, mobile_number, whatsapp_number]
     );
 
     // Optionally, update the lead's status to indicate it's marked for deletion

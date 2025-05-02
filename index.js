@@ -16,6 +16,8 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 app.use('/uploads/aoma', express.static('uploads/aoma'));
+app.use('/uploads/activation', express.static('uploads/activation'));
+app.use('/uploads/ms_teams', express.static('uploads/ms_teams'));
 
 
 // // Admin routes
