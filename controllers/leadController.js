@@ -204,9 +204,9 @@ exports.requestAOMAApproval = async (req, res) => {
   try {
     const { leadId } = req.params;
     const rmId = req.user.id;
+    const { useStar } = req.body; // Expecting true or false
     const screenshotPath = req.file ? req.file.path : null;
 
-    // Validate that a screenshot is uploaded
     if (!screenshotPath) {
       return res.status(400).json({
         success: false,
@@ -214,7 +214,7 @@ exports.requestAOMAApproval = async (req, res) => {
       });
     }
 
-    // Check if the lead belongs to the RM and is code approved
+    // Check if the lead is eligible
     const [leadResult] = await db.execute(
       `SELECT * FROM leads WHERE id = ? AND fetched_by = ? AND code_request_status = 'approved'`,
       [leadId, rmId]
@@ -227,26 +227,83 @@ exports.requestAOMAApproval = async (req, res) => {
       });
     }
 
-    // Delete the old screenshot if present
-    const oldScreenshotPath = leadResult[0].aoma_screenshot;
-    if (oldScreenshotPath && fs.existsSync(oldScreenshotPath)) {
-      fs.unlinkSync(oldScreenshotPath); // Delete the old file
+    const lead = leadResult[0];
+
+    // Delete old screenshot if exists
+    if (lead.aoma_screenshot && fs.existsSync(lead.aoma_screenshot)) {
+      fs.unlinkSync(lead.aoma_screenshot);
     }
 
-    // Update status to 'requested', store screenshot path, and request time
-    await db.execute(
-      `UPDATE leads 
-       SET aoma_request_status = 'requested', 
-           aoma_requested_at = NOW(), 
-           aoma_screenshot = ? 
-       WHERE id = ?`,
-      [screenshotPath, leadId]
-    );
+    if (useStar===true) {
+      // Check if RM has available stars
+      const [[{ aoma_stars }]] = await db.execute(
+        'SELECT aoma_stars FROM users WHERE id = ?',
+        [rmId]
+      );
 
-    res.json({
-      success: true,
-      message: "AOMA approval request sent to admin.",
-    });
+      if (aoma_stars < 1) {
+        return res.status(400).json({
+          success: false,
+          message: "Insufficient AOMA stars for auto-approval.",
+        });
+      }
+
+      // Deduct one star
+      await db.execute(
+        'UPDATE users SET aoma_stars = aoma_stars - 1 WHERE id = ?',
+        [rmId]
+      );
+
+      // Credit wallet points
+      const [pointResult] = await db.execute(
+        'SELECT points FROM conversion_points WHERE action = "aoma_approved"'
+      );
+
+      const pointsToCredit = pointResult[0]?.points || 0;
+
+      await db.execute(
+        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+        [pointsToCredit, rmId]
+      );
+
+      await db.execute(
+        'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+        [rmId, leadId, 'aoma_approved', pointsToCredit]
+      );
+
+      // Update lead as auto-approved
+      await db.execute(
+        `UPDATE leads 
+         SET aoma_request_status = 'approved',
+             aoma_requested_at = NOW(),
+             aoma_approved_at = NOW(),
+             aoma_screenshot = ?
+         WHERE id = ?`,
+        [screenshotPath, leadId]
+      );
+
+      return res.json({
+        success: true,
+        message: "AOMA request auto-approved using 1 star. Points credited.",
+      });
+
+    } else {
+      // Normal request flow
+      await db.execute(
+        `UPDATE leads 
+         SET aoma_request_status = 'requested', 
+             aoma_requested_at = NOW(), 
+             aoma_screenshot = ? 
+         WHERE id = ?`,
+        [screenshotPath, leadId]
+      );
+
+      return res.json({
+        success: true,
+        message: "AOMA approval request sent to admin.",
+      });
+    }
+
   } catch (err) {
     console.error("Error requesting AOMA approval:", err);
     res.status(500).json({
@@ -256,55 +313,120 @@ exports.requestAOMAApproval = async (req, res) => {
   }
 };
 
+
 //activation approval request
 exports.requestActivationApproval = async (req, res) => {
   const leadId = req.params.leadId;
   const rmId = req.user.id;
+  const { useStar } = req.body; // Expecting true or false
   const screenshotPath = req.file ? req.file.path : null;
 
   if (!screenshotPath) {
     return res.status(400).json({
       success: false,
-      message: "Screenshot is required for AOMA approval.",
+      message: "Screenshot is required for Activation approval.",
     });
   }
+
   try {
-    // Check lead belongs to RM & is aoma approved
+    // Check lead belongs to RM & is AOMA approved
     const [leadResult] = await db.execute(
       'SELECT * FROM leads WHERE id=? AND fetched_by=? AND aoma_request_status="approved"',
       [leadId, rmId]
     );
+
     if (leadResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Lead not found or not approved for AOMA.",
+        message: "Lead not found or not in AOMA approved state.",
       });
     }
 
-    // Delete the old screenshot if present
-    const oldScreenshotPath = leadResult[0].activation_screenshot;
-    if (oldScreenshotPath && fs.existsSync(oldScreenshotPath)) {
-      fs.unlinkSync(oldScreenshotPath); // Delete the old file
+    const lead = leadResult[0];
+
+    // Delete old screenshot if exists
+    if (lead.activation_screenshot && fs.existsSync(lead.activation_screenshot)) {
+      fs.unlinkSync(lead.activation_screenshot);
     }
-   
 
-    // Update lead status and screenshot
-    await db.execute(
-      `UPDATE leads 
-       SET activation_request_status = 'requested', 
-           activation_requested_at = NOW(), 
-           activation_screenshot = ? 
-       WHERE id = ?`,
-      [screenshotPath, leadId]
-    );
+    if (useStar === true) {
+      // Check if RM has available stars
+      const [[{ activation_stars }]] = await db.execute(
+        'SELECT activation_stars FROM users WHERE id = ?',
+        [rmId]
+      );
 
-    res.json({ success: true, message: 'Activation request sent to admin' });
+      if (activation_stars < 1) {
+        return res.status(400).json({
+          success: false,
+          message: "Insufficient Activation stars for auto-approval.",
+        });
+      }
+
+      // Deduct one star
+      await db.execute(
+        'UPDATE users SET activation_stars = activation_stars - 1 WHERE id = ?',
+        [rmId]
+      );
+
+      // Credit wallet points
+      const [pointResult] = await db.execute(
+        'SELECT points FROM conversion_points WHERE action = "activation_approved"'
+      );
+
+      const pointsToCredit = pointResult[0]?.points || 0;
+
+      await db.execute(
+        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+        [pointsToCredit, rmId]
+      );
+
+      await db.execute(
+        'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+        [rmId, leadId, 'activation_approved', pointsToCredit]
+      );
+
+      // Update lead as auto-approved
+      await db.execute(
+        `UPDATE leads 
+         SET activation_request_status = 'approved',
+             activation_approved_at = NOW(),
+             activation_screenshot = ? 
+         WHERE id = ?`,
+        [screenshotPath, leadId]
+      );
+
+      return res.json({
+        success: true,
+        message: "Activation request auto-approved using 1 star. Points credited.",
+      });
+
+    } else {
+      // Normal request flow (goes to admin)
+      await db.execute(
+        `UPDATE leads 
+         SET activation_request_status = 'requested', 
+             activation_requested_at = NOW(), 
+             activation_screenshot = ? 
+         WHERE id = ?`,
+        [screenshotPath, leadId]
+      );
+
+      return res.json({
+        success: true,
+        message: "Activation approval request sent to admin.",
+      });
+    }
 
   } catch (error) {
     console.error('Error requesting Activation approval:', error);
-    res.status(500).json({ success: false, message: 'Server error while requesting Activation approval' });
+    res.status(500).json({
+      success: false,
+      message: 'Server error while requesting Activation approval.',
+    });
   }
 };
+
 
 
 //ms team login request approval

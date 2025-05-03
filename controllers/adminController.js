@@ -136,38 +136,53 @@ exports.approveAOMARequest = async (req, res) => {
     const lead = leadResult[0];
 
     if (action === 'approve') {
-      // Get AOMA Approved point value
+      // ✅ Credit Wallet
       const [pointResult] = await db.execute(
         'SELECT points FROM conversion_points WHERE action = "aoma_approved"'
       );
 
       const pointsToCredit = pointResult[0]?.points || 0;
 
-      // Credit points to RM's wallet
       await db.execute(
         'UPDATE users SET wallet = wallet + ? WHERE id = ?',
         [pointsToCredit, lead.fetched_by]
       );
 
-      // Log transaction
       await db.execute(
         'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
         [lead.fetched_by, lead.id, 'aoma_approved', pointsToCredit]
       );
 
-      // Update lead status to approved
+      // ✅ Update lead status
       await db.execute(
         'UPDATE leads SET aoma_request_status = "approved", aoma_approved_at = NOW() WHERE id = ?',
         [leadId]
       );
 
+      // ✅ Check and update AOMA star
+      const [[{ count }]] = await db.execute(
+        `SELECT COUNT(*) as count FROM leads WHERE fetched_by = ? AND aoma_request_status = 'approved'`,
+        [lead.fetched_by]
+      );
+
+      const [[{ setting_value: threshold }]] = await db.execute(
+        `SELECT setting_value FROM config WHERE setting_key = 'aoma_star_threshold'`
+      );
+
+      if (threshold && count % threshold === 0) {
+        await db.execute(
+          `UPDATE users SET aoma_stars = aoma_stars + 1 WHERE id = ?`,
+          [lead.fetched_by]
+        );
+      }
+
       return res.status(200).json({
         success: true,
-        message: 'AOMA request approved and points credited.',
+        message: 'AOMA request approved, points credited, and stars updated if eligible.',
       });
 
     } else {
-      // Reject case: no wallet credit, just update status
+      // Reject case
       await db.execute(
         'UPDATE leads SET aoma_request_status = "rejected" WHERE id = ?',
         [leadId]
@@ -189,7 +204,9 @@ exports.approveAOMARequest = async (req, res) => {
 };
 
 
+
 //Approve activation request
+// Approve activation request
 exports.approveActivationRequest = async (req, res) => {
   const leadId = req.params.leadId;
   const { action } = req.body; // 'approve' or 'reject'
@@ -247,13 +264,40 @@ exports.approveActivationRequest = async (req, res) => {
         [leadId]
       );
 
+      // ✅ Check and update Activation star
+      const [[{ count }]] = await db.execute(
+        `SELECT COUNT(*) as count FROM leads WHERE fetched_by = ? AND activation_request_status = 'approved'`,
+        [lead.fetched_by]
+      );
+
+      const [[{ setting_value: thresholdStr }]] = await db.execute(
+        `SELECT setting_value FROM config WHERE setting_key = 'activation_star_threshold'`
+      );
+
+      const threshold = parseInt(thresholdStr, 10);
+
+      if (threshold && !isNaN(threshold) && threshold > 0 && count % threshold === 0) {
+        await db.execute(
+          `UPDATE users SET activation_stars = activation_stars + 1 WHERE id = ?`,
+          [lead.fetched_by]
+        );
+      }
+
+      // Optionally return updated wallet and star count
+      const [[user]] = await db.execute(
+        'SELECT wallet, activation_stars FROM users WHERE id = ?',
+        [lead.fetched_by]
+      );
+
       return res.status(200).json({
         success: true,
-        message: 'Activation request approved and points credited.',
+        message: 'Activation request approved, points credited, and stars updated if eligible.',
+        wallet: user.wallet,
+        activation_stars: user.activation_stars,
       });
 
     } else {
-      // Reject case: just update status
+      // Reject case
       await db.execute(
         'UPDATE leads SET activation_request_status = "rejected" WHERE id = ?',
         [leadId]
@@ -273,6 +317,7 @@ exports.approveActivationRequest = async (req, res) => {
     });
   }
 };
+
 
 
 //approve ms teams request
@@ -439,25 +484,29 @@ exports.getUsersUnderUsRequests = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const offset = (page - 1) * limit;
+    const search = req.query.search || "";
 
-    // Get total count of pending under_us_status leads
+    let baseQuery = `FROM leads`;
+    let whereClause = ` WHERE under_us_status = 'pending'`;
+    const queryParams = [];
+
+    if (search) {
+      whereClause += ` AND (name LIKE ? OR mobile_number LIKE ? OR id LIKE ?)`;
+      const keyword = `%${search}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Get total count
     const [countResult] = await db.execute(
-      `SELECT COUNT(*) AS total 
-       FROM leads 
-       WHERE under_us_status = 'pending'`
+      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+      queryParams
     );
     const totalUnderUsRequests = countResult[0].total;
     const totalPages = Math.ceil(totalUnderUsRequests / limit);
 
-    // Fetch paginated pending under_us_status leads
-    const [underUsRequests] = await db.execute(
-      `SELECT * 
-       FROM leads 
-       WHERE under_us_status = 'pending' 
-       ORDER BY under_us_requested_at DESC 
-       LIMIT ${limit} OFFSET ${offset}`,
-      [limit, offset]
-    );
+    // Get paginated data
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY under_us_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [underUsRequests] = await db.execute(fetchQuery, queryParams);
 
     if (underUsRequests.length === 0) {
       return res.status(404).json({
@@ -469,12 +518,11 @@ exports.getUsersUnderUsRequests = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Pending 'Under Us' requests fetched successfully.",
-        totalUnderUsRequests,
-        underUsRequests,
-        totalPages,
-        currentPage: page,
-        perPage: limit,
-   
+      totalUnderUsRequests,
+      underUsRequests,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
     });
   } catch (error) {
     console.error("Error fetching 'Under Us' requests:", error);
@@ -487,30 +535,38 @@ exports.getUsersUnderUsRequests = async (req, res) => {
 };
 
 
+
+
+
+
 exports.getUsersCodeRequests = async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const offset = (page - 1) * limit;
+    const search = req.query.search || "";
 
-    // Get total count of pending code_status leads
+    let baseQuery = `FROM leads`;
+    let whereClause = ` WHERE code_request_status = 'requested'`;
+    const queryParams = [];
+
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query
     const [countResult] = await db.execute(
-      `SELECT COUNT(*) AS total 
-       FROM leads 
-       WHERE code_request_status = 'requested'`
+      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+      queryParams
     );
-    const totalCodedRequests = countResult[0].total;
+    const totalCodedRequests = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalCodedRequests / limit);
 
-    // Fetch paginated pending code_status leads
-    const [codedRequests] = await db.execute(
-      `SELECT * 
-       FROM leads 
-       WHERE code_request_status = 'requested' 
-       ORDER BY code_requested_at DESC 
-        LIMIT ${limit} OFFSET ${offset}`,
-      [limit, offset]
-    );
+    // Fetch query
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY code_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [codedRequests] = await db.execute(fetchQuery, queryParams);
 
     if (codedRequests.length === 0) {
       return res.status(404).json({
@@ -539,30 +595,35 @@ exports.getUsersCodeRequests = async (req, res) => {
 };
 
 
+
 exports.getUsersAomaRequests = async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const offset = (page - 1) * limit;
+    const search = req.query.search || "";
 
-    // Get total count of pending aoma_status leads
+    let baseQuery = `FROM leads`;
+    let whereClause = ` WHERE aoma_request_status = 'requested'`;
+    const queryParams = [];
+
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query
     const [countResult] = await db.execute(
-      `SELECT COUNT(*) AS total 
-       FROM leads 
-       WHERE aoma_request_status = 'requested'`
+      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+      queryParams
     );
-    const totalAomaRequests = countResult[0].total;
+    const totalAomaRequests = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalAomaRequests / limit);
 
-    // Fetch paginated pending aoma_status leads
-    const [aomaRequests] = await db.execute(
-      `SELECT * 
-       FROM leads 
-       WHERE aoma_request_status = 'requested' 
-       ORDER BY aoma_requested_at DESC 
-       LIMIT ${limit} OFFSET ${offset}`,
-      [limit, offset]
-    );
+    // Fetch query
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY aoma_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [aomaRequests] = await db.execute(fetchQuery, queryParams);
 
     if (aomaRequests.length === 0) {
       return res.status(404).json({
@@ -591,30 +652,35 @@ exports.getUsersAomaRequests = async (req, res) => {
 };
 
 
+
 exports.getUsersActivationRequests = async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const offset = (page - 1) * limit;
+    const search = req.query.search || "";
 
-    // Get total count of pending activation_status leads
+    let baseQuery = `FROM leads`;
+    let whereClause = ` WHERE activation_request_status = 'requested'`;
+    const queryParams = [];
+
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query
     const [countResult] = await db.execute(
-      `SELECT COUNT(*) AS total 
-       FROM leads 
-       WHERE activation_request_status = 'requested'`
+      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+      queryParams
     );
-    const totalActivationRequests = countResult[0].total;
+    const totalActivationRequests = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalActivationRequests / limit);
 
-    // Fetch paginated pending activation_status leads
-    const [activationRequests] = await db.execute(
-      `SELECT * 
-       FROM leads 
-       WHERE activation_request_status = 'requested' 
-       ORDER BY activation_requested_at DESC 
-     LIMIT ${limit} OFFSET ${offset}`,
-      [limit, offset]
-    );
+    // Fetch query
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY activation_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [activationRequests] = await db.execute(fetchQuery, queryParams);
 
     if (activationRequests.length === 0) {
       return res.status(404).json({
@@ -644,6 +710,7 @@ exports.getUsersActivationRequests = async (req, res) => {
 
 
 
+
 exports.getUsersMSTeamsRequests = async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
@@ -651,43 +718,27 @@ exports.getUsersMSTeamsRequests = async (req, res) => {
     const offset = (page - 1) * limit;
     const search = req.query.search || "";
 
-    let whereClause = `ms_teams_request_status = 'requested'`;
-    let searchClause = "";
-    let params = [];
+    let baseQuery = `FROM leads`;
+    let whereClause = ` WHERE ms_teams_request_status = 'requested'`;
+    const queryParams = [];
 
     if (search) {
-      const likeSearch = `%${search}%`;
-      searchClause = `AND (name LIKE ? OR mobile_number LIKE ?)`;
-      params.push(likeSearch, likeSearch);
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
     }
 
-    // Get total count
+    // Count query
     const [countResult] = await db.execute(
-      `
-      SELECT COUNT(*) AS total 
-      FROM leads 
-      WHERE ${whereClause} ${search ? searchClause : ""}
-      `,
-      params
+      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+      queryParams
     );
-
-    const totalMsTeamsRequests = countResult[0].total;
+    const totalMsTeamsRequests = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalMsTeamsRequests / limit);
 
-    // Add pagination params
-    params.push(limit, offset);
-
-    // Get paginated results
-    const [msTeamsRequests] = await db.execute(
-      `
-      SELECT * 
-      FROM leads 
-      WHERE ${whereClause} ${search ? searchClause : ""}
-      ORDER BY ms_teams_login_requested_at DESC 
-      LIMIT ${limit} OFFSET ${offset}
-      `,
-      params
-    );
+    // Fetch query
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY ms_teams_login_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [msTeamsRequests] = await db.execute(fetchQuery, queryParams);
 
     if (msTeamsRequests.length === 0) {
       return res.status(404).json({
@@ -715,29 +766,44 @@ exports.getUsersMSTeamsRequests = async (req, res) => {
   }
 };
 
+
 exports.getUsersSIPRequests = async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const offset = (page - 1) * limit;
+    const search = req.query.search || "";
 
-    // Get total count of pending sip_status leads
+    let whereClause = `sip_request_status = 'requested'`;
+    const params = [];
+
+    if (search) {
+      const likeSearch = `%${search.toLowerCase()}%`;
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      params.push(likeSearch, likeSearch, likeSearch);
+    }
+
+    // Get total count
     const [countResult] = await db.execute(
       `SELECT COUNT(*) AS total 
        FROM leads 
-       WHERE sip_request_status = 'requested'`
+       WHERE ${whereClause}`,
+      params
     );
     const totalSipRequests = countResult[0].total;
     const totalPages = Math.ceil(totalSipRequests / limit);
 
-    // Fetch paginated pending sip_status leads
+    // Add pagination params
+    params.push(limit, offset);
+
+    // Get paginated results
     const [sipRequests] = await db.execute(
       `SELECT * 
        FROM leads 
-       WHERE sip_request_status = 'requested' 
+       WHERE ${whereClause} 
        ORDER BY sip_requested_at DESC 
        LIMIT ${limit} OFFSET ${offset}`,
-      [limit, offset]
+      params
     );
 
     if (sipRequests.length === 0) {
@@ -767,6 +833,60 @@ exports.getUsersSIPRequests = async (req, res) => {
 };
 
 
+exports.getUsersSIPRequests = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
+
+    let baseQuery = `FROM leads`;
+    let whereClause = ` WHERE sip_request_status = 'requested'`;
+    const queryParams = [];
+
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+      queryParams
+    );
+    const totalSipRequests = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalSipRequests / limit);
+
+    // Fetch query
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY sip_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [sipRequests] = await db.execute(fetchQuery, queryParams);
+
+    if (sipRequests.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No pending SIP requests found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Pending SIP requests fetched successfully.",
+      totalSipRequests,
+      sipRequests,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+  } catch (error) {
+    console.error("Error fetching SIP requests:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
 
 
 // controllers/analyticsController.js
