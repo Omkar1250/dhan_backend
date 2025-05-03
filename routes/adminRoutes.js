@@ -30,6 +30,7 @@ router.post('/approve-ms-teams/:leadId', auth, isAdmin, adminController.approveM
 router.post('/approve-sip-request/:leadId', auth, isAdmin, adminController.approveSipRequest);
 
 
+router.get('/get-all-leads', auth, isAdmin, adminController.getAllLeadsForAdmin )
 
 
 //Get usnder us requests
@@ -45,6 +46,7 @@ router.get('/get-all-jrm', auth, adminController.getAllJrm)
 router.get("/get-conversion-points", auth, isAdmin, adminController.getConversionPoints)
 router.put("/update-conversion-points", auth, isAdmin, adminController.updateConversionPoints)
 router.get("/get-delete-request-list", auth, isAdmin, adminController.getDeleteRequestsList)
+router.post("/lead/approve/:leadId",auth, isAdmin, adminController.approveLeadAction);
 
 
 

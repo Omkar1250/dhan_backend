@@ -1,5 +1,6 @@
 const db = require('../config/db');
 
+
 exports.handleUnderUsApproval = async (req, res) => {
     try {
       const { leadId, action } = req.body;
@@ -1030,9 +1031,6 @@ exports.getDeleteRequestsList = async (req, res) => {
     const offset = (page - 1) * limit;
     const search = req.query.search || "";
 
-    console.log("Backend Debugging Logs:");
-    console.log("Page:", page, "Limit:", limit, "Offset:", offset, "Search:", search);
-
     // Base query and parameters
     let baseQuery = `FROM admin_delete_list`;
     let whereClause = ` WHERE mobile_number IS NOT NULL`; // Exclude NULL values in mobile_number
@@ -1044,9 +1042,7 @@ exports.getDeleteRequestsList = async (req, res) => {
       queryParams.push(`%${search}%`);
     }
 
-    console.log("Count Query:", `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`);
-    console.log("Query Params for Count:", queryParams);
-
+   
     // Count query to get total matching results
     const [countResult] = await db.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
@@ -1055,17 +1051,15 @@ exports.getDeleteRequestsList = async (req, res) => {
     const totalDeleteRequests = countResult[0]?.total || 0; // Total rows
     const totalPages = Math.ceil(totalDeleteRequests / limit); // Calculate total pages
 
-    console.log("Total Delete Requests:", totalDeleteRequests, "Total Pages:", totalPages);
+    
 
     // Fetch query to get matching rows with pagination
     const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY deleted_at DESC LIMIT ${limit} OFFSET ${offset}`;
-    console.log("Fetch Query:", fetchQuery);
-    console.log("Query Params for Fetch:", queryParams);
+ 
 
     const [deleteRequests] = await db.execute(fetchQuery, queryParams);
 
-    console.log("Delete Requests Result:", deleteRequests);
-
+    
     // Return the response
     return res.status(200).json({
       success: true,
@@ -1085,3 +1079,217 @@ exports.getDeleteRequestsList = async (req, res) => {
     });
   }
 };
+
+
+
+// exports.approveAction = async (leadId, type, action) => {
+//   const now = moment().format('YYYY-MM-DD HH:mm:ss');
+
+//   switch (type) {
+//     case 'under-us':
+//       if (action === 'approve') {
+//         await db.query(`UPDATE leads SET under_us_status = 'approved', under_us_approved_at = ? WHERE id = ?`, [now, leadId]);
+//       } else {
+//         await db.query(`UPDATE leads SET under_us_status = 'rejected' WHERE id = ?`, [leadId]);
+//       }
+//       break;
+
+//     case 'code':
+//       if (action === 'approve') {
+//         await db.query(`UPDATE leads SET code_request_status = 'approved', code_approved_at = ? WHERE id = ?`, [now, leadId]);
+//       } else {
+//         await db.query(`UPDATE leads SET code_request_status = 'rejected' WHERE id = ?`, [leadId]);
+//       }
+//       break;
+
+//     case 'aoma':
+//       if (action === 'approve') {
+//         await db.query(`UPDATE leads SET aoma_request_status = 'approved', aoma_approved_at = ? WHERE id = ?`, [now, leadId]);
+//       } else {
+//         await db.query(`UPDATE leads SET aoma_request_status = 'rejected' WHERE id = ?`, [leadId]);
+//       }
+//       break;
+
+//     case 'activation':
+//       if (action === 'approve') {
+//         await db.query(`UPDATE leads SET activation_request_status = 'approved', activation_approved_at = ? WHERE id = ?`, [now, leadId]);
+//       } else {
+//         await db.query(`UPDATE leads SET activation_request_status = 'rejected' WHERE id = ?`, [leadId]);
+//       }
+//       break;
+
+//     case 'ms-teams':
+//       if (action === 'approve') {
+//         await db.query(`UPDATE leads SET ms_teams_request_status = 'approved', ms_teams_approved_at = ? WHERE id = ?`, [now, leadId]);
+//       } else {
+//         await db.query(`UPDATE leads SET ms_teams_request_status = 'rejected' WHERE id = ?`, [leadId]);
+//       }
+//       break;
+
+//     case 'sip':
+//       if (action === 'approve') {
+//         await db.query(`UPDATE leads SET sip_request_status = 'approved', sip_approved_at = ? WHERE id = ?`, [now, leadId]);
+//       } else {
+//         await db.query(`UPDATE leads SET sip_request_status = 'rejected' WHERE id = ?`, [leadId]);
+//       }
+//       break;
+
+//     case 'delete':
+//       await db.query(`DELETE FROM leads WHERE id = ?`, [leadId]);
+//       break;
+
+//     default:
+//       throw new Error('Invalid type');
+//   }
+// };
+
+
+exports.getAllLeadsForAdmin = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
+
+    let baseQuery = `FROM leads`;
+    let whereClause = ` WHERE 1=1`; // Always true to allow appending conditions easily
+    const queryParams = [];
+
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query to get the total number of leads
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+      queryParams
+    );
+    const totalTrailList = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalTrailList / limit);
+
+    // Fetch query to get leads with pagination
+    const fetchQuery = `SELECT id, name, mobile_number,whatsapp_mobile_number, under_us_status, code_request_status, 
+                        aoma_request_status, activation_request_status, ms_teams_request_status, sip_request_status 
+                        ${baseQuery}${whereClause} 
+                        ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [trails] = await db.execute(fetchQuery, queryParams);
+
+    if (trails.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No leads found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Leads fetched successfully.",
+      totalTrailList,
+      trails,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+  } catch (err) {
+    console.error("Error fetching leads:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
+  }
+};
+
+//UNIVERSAL
+exports.approveLeadAction = async (req, res) => {
+  const { leadId } = req.params;
+  const { action } = req.body;
+
+  const validActions = {
+    under_us: { column: "under_us_status", date: "under_us_approved_at" },
+    code_request: { column: "code_request_status", date: "code_approved_at" },
+    aoma_request: { column: "aoma_request_status", date: "aoma_approved_at" },
+    activation_request: { column: "activation_request_status", date: "activation_approved_at" },
+    ms_teams_request: { column: "ms_teams_request_status", date: "ms_teams_approved_at" },
+    sip_request: { column: "sip_request_status", date: "sip_approved_at" },
+  };
+
+  try {
+    // Check if action is valid
+    if (!validActions[action]) {
+      return res.status(400).json({ message: "Invalid action" });
+    }
+
+    const { column, date } = validActions[action];
+
+    // Fetch lead's current status
+    const [results] = await db.query(
+      `SELECT under_us_status, code_request_status, aoma_request_status, activation_request_status, ms_teams_request_status, sip_request_status
+       FROM leads WHERE id = ?`,
+      [leadId]
+    );
+    const lead = results[0];
+
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found" });
+    }
+
+    // Log for debugging
+    console.log("Fetched Lead Data:", lead);
+
+    // Strict Validation Logic for Each Action
+    switch (action) {
+      case "code_request":
+        if (lead.under_us_status !== "approved") {
+          return res.status(400).json({ message: "First complete Under Us request" });
+        }
+        break;
+
+      case "aoma_request":
+        if (lead.code_request_status !== "approved") {
+          return res.status(400).json({ message: "Please complete Code request first" });
+        }
+        break;
+
+      case "activation_request":
+        if (lead.aoma_request_status !== "approved") {
+          return res.status(400).json({ message: "First complete AOMA request" });
+        }
+        break;
+
+      case "ms_teams_request":
+      case "sip_request":
+        if (lead.code_request_status !== "approved") {
+          return res.status(400).json({ message: "Code request must be approved first" });
+        }
+        break;
+
+      case "under_us":
+        // No dependencies for "Under Us"
+        break;
+
+      default:
+        return res.status(400).json({ message: "Invalid action" });
+    }
+
+    // Update the status and date
+    const sql = `UPDATE leads SET ${column} = 'approved', ${date} = NOW() WHERE id = ?`;
+    const [result] = await db.query(sql, [leadId]);
+
+    console.log("SQL Update Result:", result);
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ message: "Failed to update lead status" });
+    }
+
+    // Success Response
+    res.status(200).json({ message: `${action} approved successfully` });
+  } catch (error) {
+    console.error("Approval error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+
