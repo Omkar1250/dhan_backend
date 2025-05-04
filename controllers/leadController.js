@@ -57,54 +57,71 @@ exports.fetchLeads = async (req, res) => {
 //leads list of particulat RM 
 exports.fetchLeadsRMs = async (req, res) => {
   try {
-    const rmId = req.user.id; // Assuming rmId comes from the authenticated user
-    
-    // Get page and limit from the query params (default to 1 page and 5 leads per page)
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
-    
-    // Calculate the offset for pagination
+    const rmId = req.user.id;
+
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
+    const search = req.query.search || "";
 
-    console.log('rmId:', rmId, 'page:', page, 'limit:', limit, 'offset:', offset);
+    const baseQuery = `FROM leads`;
+    let whereClause = `
+      WHERE fetched_by = ?
+      AND (referred_by_rm IS NULL OR referred_by_rm = 0 OR deleted_by_rm IS NULL)
+     
+    `;
+    const queryParams = [rmId];
 
-    // Query to get the total number of leads for pagination info
-    const [totalLeadsResult] = await db.execute('SELECT COUNT(*) as total FROM leads WHERE fetched_by = ?', [rmId]);
-    const totalLeads = totalLeadsResult[0].total;
-    const totalPages = Math.ceil(totalLeads / limit);
-
-    console.log('Total Leads:', totalLeads, 'Total Pages:', totalPages);
-
-    // Use template literals for LIMIT and OFFSET
-    const query = `
-  SELECT * FROM leads 
-  WHERE fetched_by = ? 
-  ORDER BY fetched_at ASC 
-  LIMIT ${limit} OFFSET ${offset}
-`;
-    // Logging query and parameters to ensure they're correct
-    console.log('Executing query:', query, 'with parameters:', [rmId]);
-
-    const [leads] = await db.execute(query, [rmId]);
-
-    // If leads are not found, log the error
-    if (!leads || leads.length === 0) {
-      console.log('No leads found for this RMId:', rmId);
+    if (search) {
+      whereClause += `
+        AND (
+          LOWER(name) LIKE ?
+          OR LOWER(mobile_number) LIKE ?
+          OR CAST(id AS CHAR) LIKE ?
+        )
+      `;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
     }
 
-    res.status(200).json({
+    // Count total leads
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total ${baseQuery} ${whereClause}`,
+      queryParams
+    );
+    const totalLeads = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalLeads / limit);
+
+    // Fetch paginated leads
+    const fetchQuery = `SELECT * ${baseQuery} ${whereClause} ORDER BY fetched_at ASC LIMIT ${limit} OFFSET ${offset}`;
+    const [leads] = await db.execute(fetchQuery, queryParams);
+
+    if (leads.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No leads found for this RM.",
+      });
+    }
+
+    return res.status(200).json({
       success: true,
-      message: 'RM Leads fetched successfully.',
-      leads, // Include the actual leads data in the response
-      totalLeads, // Total number of leads
-      totalPages, // Total number of pages
-      currentPage: page // Current page number
+      message: "RM Leads fetched successfully.",
+      totalLeads,
+      leads,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
     });
   } catch (error) {
-    console.error('Error fetching leads:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Error fetching RM Leads:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
 };
+
 
 
 
@@ -581,54 +598,63 @@ if (!leadId || !rmId) {
 exports.fetchLeadsUnderUsapproved = async (req, res) => {
   try {
     const rmId = req.user.id; // Assuming rmId comes from the authenticated user
-    
-    // Get page and limit from the query params (default to 1 page and 5 leads per page)
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
-    
-    // Calculate the offset for pagination
+
+    // Get page, limit, and search query from the request parameters
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
+    const search = req.query.search || ""; // Search query for filtering leads
 
-    console.log('rmId:', rmId, 'page:', page, 'limit:', limit, 'offset:', offset);
+    // Base query components
+    const baseQuery = `FROM leads`;
+    let whereClause = ` WHERE fetched_by = ? AND under_us_status = ? AND deleted_by_rm = 0`;
+    const queryParams = [rmId, 'approved'];
 
-    // Query to get the total number of approved leads for pagination info
-    const [totalLeadsResult] = await db.execute(
-     'SELECT COUNT(*) as total FROM leads WHERE fetched_by = ? AND under_us_status = ? AND deleted_by_rm = 0',
-      [rmId, 'approved']
-    );
-    const totalApprovedLeads = totalLeadsResult[0].total;
-    const totalPages = Math.ceil(totalApprovedLeads / limit);
-
-    console.log('Total Approved Leads:', totalApprovedLeads, 'Total Pages:', totalPages);
-
-    // Query to fetch approved leads for this RM
-    const query = `
-      SELECT * FROM leads 
-       WHERE fetched_by = ? AND under_us_status = ? AND deleted_by_rm = 0  
-      ORDER BY fetched_at ASC 
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-    // Logging query and parameters to ensure they're correct
-    console.log('Executing query:', query, 'with parameters:', [rmId, 'approved']);
-
-    const [underUsApproved] = await db.execute(query, [rmId, 'approved']);
-
-    // If leads are not found, log the error
-    if (!underUsApproved || underUsApproved.length === 0) {
-      console.log('No approved leads found for this RMId:', rmId);
+    // Add search conditions if a search query is provided
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
     }
 
-    res.status(200).json({
+    // Count query to get total approved leads
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+      queryParams
+    );
+    const totalApprovedLeads = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalApprovedLeads / limit);
+
+    // Fetch query to get paginated approved leads
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY fetched_at ASC LIMIT ${limit} OFFSET ${offset}`;
+    const [underUsApproved] = await db.execute(fetchQuery, queryParams);
+
+    // If no approved leads are found, return a 404 response
+    if (underUsApproved.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No approved leads found for this RM.",
+      });
+    }
+
+    // Return a successful response with approved leads data
+    return res.status(200).json({
       success: true,
-      message: 'Approved RM Leads fetched successfully.',
-      underUsApproved, // Include the actual approved leads data in the response
-      totalApprovedLeads, // Total number of approved leads
-      totalPages, // Total number of pages
-      currentPage: page // Current page number
+      message: "Approved RM Leads fetched successfully.",
+      totalApprovedLeads,
+      underUsApproved,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
     });
   } catch (error) {
-    console.error('Error fetching approved leads:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Error fetching approved leads:", error);
+    // Handle unexpected errors and return a 500 response
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
 };
 
@@ -636,38 +662,61 @@ exports.fetchLeadsUnderUsapproved = async (req, res) => {
 exports.fetchCodeApprovedLeads = async (req, res) => {
   try {
     const rmId = req.user.id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
+    const search = req.query.search || ""; // Search query for filtering leads
 
-    // Count total leads
+    // Base query components
+    const baseQuery = `FROM leads`;
+    let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved'`;
+    const queryParams = [rmId];
+
+    // Add search conditions if a search query is provided
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query to get total approved leads
     const [totalResult] = await db.execute(
-      "SELECT COUNT(*) as total FROM leads WHERE fetched_by = ? AND code_request_status = 'approved'",
-      [rmId]
+      `SELECT COUNT(*) as total ${baseQuery}${whereClause}`,
+      queryParams
     );
-    const totalCodedLeads = totalResult[0].total;
+    const totalCodedLeads = totalResult[0]?.total || 0;
     const totalPages = Math.ceil(totalCodedLeads / limit);
 
-    // Fetch paginated approved leads
-    const [codedApproved] = await db.execute(
-      `SELECT * FROM leads 
-       WHERE fetched_by = ? AND code_request_status = 'approved' 
-       ORDER BY fetched_at ASC 
-       LIMIT ${limit} OFFSET ${offset}`,
-      [rmId]
-    );
+    // Fetch query to get paginated approved leads
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY fetched_at ASC LIMIT ${limit} OFFSET ${offset}`;
+    const [codedApproved] = await db.execute(fetchQuery, queryParams);
 
-    res.status(200).json({
+    // If no approved leads are found, return a 404 response
+    if (codedApproved.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No Code Approved leads found for this RM.",
+      });
+    }
+
+    // Return a successful response with approved leads data
+    return res.status(200).json({
       success: true,
       message: "Code Approved leads fetched successfully.",
       codedApproved,
       totalCodedLeads,
       totalPages,
       currentPage: page,
+      perPage: limit,
     });
   } catch (error) {
     console.error("Error fetching Code Approved leads:", error);
-    res.status(500).json({ success: false, error: error.message });
+    // Handle unexpected errors and return a 500 response
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
 };
 
@@ -675,38 +724,61 @@ exports.fetchCodeApprovedLeads = async (req, res) => {
 exports.fetchAOMAApprovedLeads = async (req, res) => {
   try {
     const rmId = req.user.id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
+    const search = req.query.search || ""; // Search query for filtering leads
 
-    // Count total leads with approved AOMA request
+    // Base query components
+    const baseQuery = `FROM leads`;
+    let whereClause = ` WHERE fetched_by = ? AND aoma_request_status = 'approved'`;
+    const queryParams = [rmId];
+
+    // Add search conditions if a search query is provided
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query to get total approved leads
     const [totalResult] = await db.execute(
-      "SELECT COUNT(*) as total FROM leads WHERE fetched_by = ? AND aoma_request_status = 'approved'",
-      [rmId]
+      `SELECT COUNT(*) as total ${baseQuery}${whereClause}`,
+      queryParams
     );
-    const totalAomaLeads = totalResult[0].total;
+    const totalAomaLeads = totalResult[0]?.total || 0;
     const totalPages = Math.ceil(totalAomaLeads / limit);
 
-    // Fetch paginated leads
-    const [aomaApproved] = await db.execute(
-      `SELECT * FROM leads 
-       WHERE fetched_by = ? AND aoma_request_status = 'approved' 
-       ORDER BY fetched_at ASC 
-       LIMIT ${limit} OFFSET ${offset}`,
-      [rmId]
-    );
+    // Fetch query to get paginated approved leads
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY fetched_at ASC LIMIT ${limit} OFFSET ${offset}`;
+    const [aomaApproved] = await db.execute(fetchQuery, queryParams);
 
-    res.status(200).json({
+    // If no approved leads are found, return a 404 response
+    if (aomaApproved.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No AOMA Approved leads found for this RM.",
+      });
+    }
+
+    // Return a successful response with approved leads data
+    return res.status(200).json({
       success: true,
       message: "AOMA Approved leads fetched successfully.",
       aomaApproved,
       totalAomaLeads,
       totalPages,
       currentPage: page,
+      perPage: limit,
     });
   } catch (error) {
     console.error("Error fetching AOMA Approved leads:", error);
-    res.status(500).json({ success: false, error: error.message });
+    // Handle unexpected errors and return a 500 response
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
 };
 
@@ -716,9 +788,10 @@ exports.fetchAOMAApprovedLeads = async (req, res) => {
 exports.fetchActivationApprovedLeads = async (req, res) => {
   try {
     const rmId = req.user.id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
+    const search = req.query.search || ""; // Search query for filtering leads
 
     // Remove expired leads (activated more than 30 days ago)
     await db.execute(
@@ -730,38 +803,56 @@ exports.fetchActivationApprovedLeads = async (req, res) => {
       [rmId]
     );
 
-    // Count remaining activation approved leads
+    // Base query components
+    const baseQuery = `FROM leads`;
+    let whereClause = ` WHERE fetched_by = ? AND activation_request_status = 'approved'`;
+    const queryParams = [rmId];
+
+    // Add search conditions if a search query is provided
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query to get total activation approved leads
     const [totalResult] = await db.execute(
-      `SELECT COUNT(*) as total 
-       FROM leads 
-       WHERE fetched_by = ? 
-         AND activation_request_status = 'approved'`,
-      [rmId]
+      `SELECT COUNT(*) as total ${baseQuery}${whereClause}`,
+      queryParams
     );
-    const totalActivationLeads = totalResult[0].total;
+    const totalActivationLeads = totalResult[0]?.total || 0;
     const totalPages = Math.ceil(totalActivationLeads / limit);
 
-    // Fetch paginated leads
-    const [activationApproved] = await db.execute(
-      `SELECT * FROM leads 
-       WHERE fetched_by = ? 
-         AND activation_request_status = 'approved' 
-       ORDER BY activation_approved_at ASC 
-       LIMIT ${limit} OFFSET ${offset}`,
-      [rmId]
-    );
+    // Fetch query to get paginated activation approved leads
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY activation_approved_at ASC LIMIT ${limit} OFFSET ${offset}`;
+    const [activationApproved] = await db.execute(fetchQuery, queryParams);
 
-    res.status(200).json({
+    // If no activation approved leads are found, return a 404 response
+    if (activationApproved.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No Activation Approved leads found for this RM.",
+      });
+    }
+
+    // Return a successful response with activation approved leads data
+    return res.status(200).json({
       success: true,
       message: "Activation Approved leads fetched successfully.",
       activationApproved,
       totalActivationLeads,
       totalPages,
       currentPage: page,
+      perPage: limit,
     });
   } catch (error) {
     console.error("Error fetching Activation Approved leads:", error);
-    res.status(500).json({ success: false, error: error.message });
+    // Handle unexpected errors and return a 500 response
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
 };
 
@@ -770,93 +861,124 @@ exports.fetchActivationApprovedLeads = async (req, res) => {
 exports.fetchMsTeamsApprovedLeads = async (req, res) => {
   try {
     const rmId = req.user.id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
-  
-    // Count remaining leads matching condition
+    const search = req.query.search || ""; // Search query for filtering leads
+
+    // Base query components
+    const baseQuery = `FROM leads`;
+    let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved' AND ms_details_sent = 'approved'`
+    const queryParams = [rmId];
+
+    // Add search conditions if a search query is provided
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query to get total MS Teams or SIP approved leads
     const [totalResult] = await db.execute(
-      `SELECT COUNT(*) as total 
-       FROM leads 
-       WHERE fetched_by = ? 
-         AND code_request_status = 'approved'
-    `,
-      [rmId]
+      `SELECT COUNT(*) as total ${baseQuery}${whereClause}`,
+      queryParams
     );
-    const totalMsTeamsLeads = totalResult[0].total;
+    const totalMsTeamsLeads = totalResult[0]?.total || 0;
     const totalPages = Math.ceil(totalMsTeamsLeads / limit);
-  
-    // Fetch paginated leads
-    const [msTeamsApproved] = await db.execute(
-      `SELECT * FROM leads 
-       WHERE fetched_by = ? 
-         AND code_request_status = 'approved'
-        
-       ORDER BY code_approved_at ASC 
-       LIMIT ${limit} OFFSET ${offset}`,
-      [rmId]
-    );
-  
-    res.status(200).json({
+
+    // Fetch query to get paginated MS Teams or SIP approved leads
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY code_approved_at ASC LIMIT ${limit} OFFSET ${offset}`;
+    const [msTeamsApproved] = await db.execute(fetchQuery, queryParams);
+
+    // If no approved leads are found, return a 404 response
+    if (msTeamsApproved.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No MS Teams or SIP approved leads found for this RM.",
+      });
+    }
+
+    // Return a successful response with approved leads data
+    return res.status(200).json({
       success: true,
-      message: "Pending MS Teams or SIP leads fetched successfully.",
+      message: "MS Teams or SIP approved leads fetched successfully.",
       msTeamsApproved,
       totalMsTeamsLeads,
       totalPages,
       currentPage: page,
+      perPage: limit,
     });
-  
   } catch (error) {
-    console.error("Error fetching Pending MS Teams or SIP leads:", error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Error fetching MS Teams or SIP approved leads:", error);
+    // Handle unexpected errors and return a 500 response
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
-  
-}
+};
 //fetch sip  approved list
 exports.fetchSipApprovedLeads = async (req, res) => {
   try {
     const rmId = req.user.id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
-  
-    // Count remaining leads matching condition
+    const search = req.query.search || ""; // Search query for filtering leads
+
+    // Base query components
+    const baseQuery = `FROM leads`;
+    let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved'`;
+    const queryParams = [rmId];
+
+    // Add search conditions if a search query is provided
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query to get total SIP approved leads
     const [totalResult] = await db.execute(
-      `SELECT COUNT(*) as total 
-       FROM leads 
-       WHERE fetched_by = ? 
-         AND code_request_status = 'approved'
-        `,
-      [rmId]
+      `SELECT COUNT(*) as total ${baseQuery}${whereClause}`,
+      queryParams
     );
-    const totalSipLeads = totalResult[0].total;
+    const totalSipLeads = totalResult[0]?.total || 0;
     const totalPages = Math.ceil(totalSipLeads / limit);
-  
-    // Fetch paginated leads
-    const [sipApproved] = await db.execute(
-      `SELECT * FROM leads 
-       WHERE fetched_by = ? 
-         AND code_request_status = 'approved'
-       ORDER BY code_approved_at ASC 
-       LIMIT ${limit} OFFSET ${offset}`,
-      [rmId]
-    );
-  
-    res.status(200).json({
+
+    // Fetch query to get paginated SIP approved leads
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY code_approved_at ASC LIMIT ${limit} OFFSET ${offset}`;
+    const [sipApproved] = await db.execute(fetchQuery, queryParams);
+
+    // If no approved leads are found, return a 404 response
+    if (sipApproved.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No SIP approved leads found for this RM.",
+      });
+    }
+
+    // Return a successful response with approved leads data
+    return res.status(200).json({
       success: true,
-      message: "Pending MS Teams or SIP leads fetched successfully.",
+      message: "SIP approved leads fetched successfully.",
       sipApproved,
       totalSipLeads,
       totalPages,
       currentPage: page,
+      perPage: limit,
     });
-  
   } catch (error) {
-    console.error("Error fetching Pending MS Teams or SIP leads:", error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Error fetching SIP approved leads:", error);
+    // Handle unexpected errors and return a 500 response
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
-  
-}
+};
 
 
 

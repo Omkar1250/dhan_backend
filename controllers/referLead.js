@@ -83,7 +83,7 @@ exports.fetchReferLeadsRMs = async (req, res) => {
       console.log('rmId:', rmId, 'page:', page, 'limit:', limit, 'offset:', offset);
   
       // Query to get the total number of leads for pagination info
-      const [totalReferLeadsResult] = await db.execute('SELECT COUNT(*) as total FROM leads WHERE referred_by_rm = ?', [rmId]);
+      const [totalReferLeadsResult] = await db.execute('SELECT COUNT(*) as total FROM leads WHERE referred_by_rm = ? ', [rmId]);
       const totalReferLeads = totalReferLeadsResult[0].total;
       const totalPages = Math.ceil(totalReferLeads / limit);
   

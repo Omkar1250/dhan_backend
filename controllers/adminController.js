@@ -834,60 +834,6 @@ exports.getUsersSIPRequests = async (req, res) => {
 };
 
 
-exports.getUsersSIPRequests = async (req, res) => {
-  try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
-    const offset = (page - 1) * limit;
-    const search = req.query.search || "";
-
-    let baseQuery = `FROM leads`;
-    let whereClause = ` WHERE sip_request_status = 'requested'`;
-    const queryParams = [];
-
-    if (search) {
-      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
-      const keyword = `%${search.toLowerCase()}%`;
-      queryParams.push(keyword, keyword, keyword);
-    }
-
-    // Count query
-    const [countResult] = await db.execute(
-      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
-      queryParams
-    );
-    const totalSipRequests = countResult[0]?.total || 0;
-    const totalPages = Math.ceil(totalSipRequests / limit);
-
-    // Fetch query
-    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY sip_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
-    const [sipRequests] = await db.execute(fetchQuery, queryParams);
-
-    if (sipRequests.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No pending SIP requests found.",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Pending SIP requests fetched successfully.",
-      totalSipRequests,
-      sipRequests,
-      totalPages,
-      currentPage: page,
-      perPage: limit,
-    });
-  } catch (error) {
-    console.error("Error fetching SIP requests:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
-  }
-};
 
 
 // controllers/analyticsController.js
@@ -1291,5 +1237,118 @@ exports.approveLeadAction = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
+exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
+
+    // Build WHERE clause and queryParams array
+    let whereClause = `WHERE code_request_status = 'approved'`;
+    const queryParams = [];
+
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR LOWER(whatsapp_mobile_number) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count total matching records
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total FROM leads ${whereClause}`,
+      queryParams
+    );
+    const totalMsLeads = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalMsLeads / limit);
+
+    // Fetch paginated results
+    const fetchQuery = `
+      SELECT id, name, mobile_number, whatsapp_mobile_number, batch_code,
+             created_at, code_approved_at
+      FROM leads
+      ${whereClause}
+      ORDER BY code_approved_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+
+    const [msLeads] = await db.execute(fetchQuery, queryParams);
+
+    if (msLeads.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No leads found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "MS Teams leads fetched successfully.",
+      totalMsLeads,
+      msLeads,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+  } catch (err) {
+    console.error("Error fetching MS Teams leads for admin:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
+  }
+};
+
+
+exports.msTeamsDetailsSent = async( req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { action } = req.body;
+
+    // Validate input parameters
+    if (!leadId || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Invalid parameters. Action must be either "approve" or "reject".' });
+    }
+
+
+    const [leadResult] = await db.execute(
+      'SELECT * FROM leads WHERE id = ? AND code_request_status  = "approved"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not code approved.' });
+    }
+
+    const lead = leadResult[0];
+
+    if (action === 'approve') {
+        // Update lead status
+        await db.execute(
+          'UPDATE leads SET ms_details_sent  = "approved" WHERE id = ?',
+          [leadId]
+        );
+
+
+        return res.status(200).json({ success: true, message: 'Ms Teams Details sent.' });
+      
+    } else if (action === 'reject') {
+  
+      await db.execute(
+        'UPDATE leads SET ms_details_sent = "rejected" WHERE id = ?',
+        [leadId]
+      );
+
+      return res.status(200).json({ success: true, message: 'Not sent' });
+    }
+  } catch (error) {
+    console.error('Error handling Request:', error);
+    res.status(500).json({ success: false, message: 'Server error while sending request.', error: error.message });
+  }
+};
+
+
 
 

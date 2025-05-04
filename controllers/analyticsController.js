@@ -5,27 +5,26 @@ exports.getSummary = async (req, res) => {
   const userId = req.user.id; // Get RM's ID from logged-in user
 
   try {
-    let whereConditions = 'fetched_by = ?'; // Always filter by this RM
+    let whereConditions = 'fetched_by = ?';
     let params = [userId];
 
     if (startDate && endDate) {
-      whereConditions += ` AND fetched_at BETWEEN ? AND ?`;
+      whereConditions += ' AND fetched_at BETWEEN ? AND ?';
       params.push(startDate, endDate);
     }
 
     const [rows] = await db.execute(
       `SELECT
-         SUM(fetched_at IS NOT NULL) AS fetchedLeads,
-         SUM(referred_by_rm) AS referredLeads,
-         SUM(under_us_status = 'approved') AS underUsApproved,
-         SUM(code_request_status = 'approved') AS codeApproved,
-         SUM(aoma_request_status = 'approved') AS aomaActivated,
-         SUM(activation_request_status = 'approved') AS activationDone,
-         SUM(ms_teams_request_status = 'approved') AS msTeamsLogin,
-         SUM(sip_request_status = 'approved') AS sipSetup
+         SUM(CASE WHEN fetched_at IS NOT NULL AND (referred_by_rm IS NULL OR referred_by_rm = 0) THEN 1 ELSE 0 END) AS fetchedLeads,
+         SUM(CASE WHEN referred_by_rm IS NOT NULL AND referred_by_rm != 0 THEN 1 ELSE 0 END) AS referredLeads,
+         SUM(CASE WHEN under_us_status = 'approved' THEN 1 ELSE 0 END) AS underUsApproved,
+         SUM(CASE WHEN code_request_status = 'approved' THEN 1 ELSE 0 END) AS codeApproved,
+         SUM(CASE WHEN aoma_request_status = 'approved' THEN 1 ELSE 0 END) AS aomaActivated,
+         SUM(CASE WHEN activation_request_status = 'approved' THEN 1 ELSE 0 END) AS activationDone,
+         SUM(CASE WHEN ms_teams_request_status = 'approved' THEN 1 ELSE 0 END) AS msTeamsLogin,
+         SUM(CASE WHEN sip_request_status = 'approved' THEN 1 ELSE 0 END) AS sipSetup
        FROM leads
-       WHERE ${whereConditions}
-      `,
+       WHERE ${whereConditions}`,
       params
     );
 
@@ -36,4 +35,3 @@ exports.getSummary = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error fetching analytics summary.' });
   }
 };
-// SUM(is_referred = 1) AS referredLeads,

@@ -48,6 +48,9 @@ router.put("/update-conversion-points", auth, isAdmin, adminController.updateCon
 router.get("/get-delete-request-list", auth, isAdmin, adminController.getDeleteRequestsList)
 router.post("/lead/approve/:leadId",auth, isAdmin, adminController.approveLeadAction);
 
+router.get("/get-list-msteams-login", auth, isAdmin, adminController.fetchMsTeamsLeadsForAdmin)
+router.post("/ms-teams-details/:leadId", auth, isAdmin, adminController.msTeamsDetailsSent)
+
 
 
 
