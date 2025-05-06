@@ -776,26 +776,26 @@ exports.getUsersSIPRequests = async (req, res) => {
     const search = req.query.search || "";
 
     let whereClause = `sip_request_status = 'requested'`;
-    const params = [];
+    const searchParams = [];
 
     if (search) {
       const likeSearch = `%${search.toLowerCase()}%`;
       whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
-      params.push(likeSearch, likeSearch, likeSearch);
+      searchParams.push(likeSearch, likeSearch, likeSearch);
     }
 
-    // Get total count
+    // Get total count (no limit/offset here)
     const [countResult] = await db.execute(
       `SELECT COUNT(*) AS total 
        FROM leads 
        WHERE ${whereClause}`,
-      params
+      searchParams
     );
     const totalSipRequests = countResult[0].total;
     const totalPages = Math.ceil(totalSipRequests / limit);
 
-    // Add pagination params
-    params.push(limit, offset);
+    // Pagination-specific params
+    const fetchParams = [...searchParams, limit, offset];
 
     // Get paginated results
     const [sipRequests] = await db.execute(
@@ -803,8 +803,8 @@ exports.getUsersSIPRequests = async (req, res) => {
        FROM leads 
        WHERE ${whereClause} 
        ORDER BY sip_requested_at DESC 
-       LIMIT ${limit} OFFSET ${offset}`,
-      params
+        LIMIT ${limit} OFFSET ${offset}`,
+      fetchParams
     );
 
     if (sipRequests.length === 0) {
@@ -832,6 +832,7 @@ exports.getUsersSIPRequests = async (req, res) => {
     });
   }
 };
+
 
 
 

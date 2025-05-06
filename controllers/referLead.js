@@ -70,53 +70,59 @@ exports.checkMobileNumber = async (req, res) => {
 
 //leads list of particulat RM 
 exports.fetchReferLeadsRMs = async (req, res) => {
-    try {
-      const rmId = req.user.id; // Assuming rmId comes from the authenticated user
-      
-      // Get page and limit from the query params (default to 1 page and 5 leads per page)
-      const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 5;
-      
-      // Calculate the offset for pagination
-      const offset = (page - 1) * limit;
-  
-      console.log('rmId:', rmId, 'page:', page, 'limit:', limit, 'offset:', offset);
-  
-      // Query to get the total number of leads for pagination info
-      const [totalReferLeadsResult] = await db.execute('SELECT COUNT(*) as total FROM leads WHERE referred_by_rm = ? ', [rmId]);
-      const totalReferLeads = totalReferLeadsResult[0].total;
-      const totalPages = Math.ceil(totalReferLeads / limit);
-  
-      console.log('Total referLeads:', totalReferLeads, 'Total Pages:', totalPages);
-  
-      // Use template literals for LIMIT and OFFSET
-      const query = `
-    SELECT * FROM leads 
-    WHERE referred_by_rm = ? 
-    ORDER BY fetched_at ASC 
-    LIMIT ${limit} OFFSET ${offset}
-  `;
-      // Logging query and parameters to ensure they're correct
-      console.log('Executing query:', query, 'with parameters:', [rmId]);
-  
-      const [referLeads] = await db.execute(query, [rmId]);
-  
-      // If leads are not found, log the error
-      if (!referLeads || referLeads.length === 0) {
-        console.log('No leads found for this RMId:', rmId);
-      }
-  
-      res.status(200).json({
-        success: true,
-        message: 'RM Leads fetched successfully.',
-        referLeads, // Include the actual leads data in the response
-        totalReferLeads, // Total number of leads
-        totalPages, // Total number of pages
-        currentPage: page // Current page number
-      });
-    } catch (error) {
-      console.error('Error fetching leads:', error);
-      res.status(500).json({ success: false, error: error.message });
+  try {
+    const rmId = req.user.id; // Assuming `rmId` comes from the authenticated user
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
+
+    let baseQuery = `FROM leads`;
+    let whereClause = ` WHERE referred_by_rm = ? AND (under_us_status IS NULL OR under_us_status != 'approved')`;
+    const queryParams = [rmId];
+
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR LOWER(whatsapp_mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword, keyword);
     }
-  };
-  
+
+    // Count query to get the total number of leads
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+      queryParams
+    );
+    const totalReferLeads = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalReferLeads / limit);
+
+    // Fetch query to get leads with pagination
+    const fetchQuery = `SELECT id, name, mobile_number, whatsapp_mobile_number, under_us_status, fetched_at 
+                        ${baseQuery}${whereClause} 
+                        ORDER BY fetched_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [referLeads] = await db.execute(fetchQuery, queryParams);
+
+    if (referLeads.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No leads found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "RM Leads fetched successfully.",
+      totalReferLeads,
+      referLeads,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+  } catch (err) {
+    console.error("Error fetching RM leads:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
+  }
+};
