@@ -95,13 +95,14 @@ exports.adminPayout = async (req, res) => {
   
       // Fetch the paginated transaction history along with the lead name
       const query = `
-        SELECT wt.*, l.name AS lead_name
-        FROM wallet_transactions wt
-        LEFT JOIN leads l ON wt.lead_id = l.id
-        WHERE wt.user_id = ?
-        ORDER BY wt.created_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `;
+      SELECT wt.*, l.name AS lead_name, l.mobile_number
+      FROM wallet_transactions wt
+      LEFT JOIN leads l ON wt.lead_id = l.id
+      WHERE wt.user_id = ?
+      ORDER BY wt.created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    
   
       const [transactions] = await db.execute(query, [rmId]);
   

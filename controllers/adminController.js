@@ -115,6 +115,7 @@ exports.handleCodeApproval = async (req, res) => {
 exports.approveAOMARequest = async (req, res) => {
   const leadId = req.params.leadId;
   const { action } = req.body; // 'approve' or 'reject'
+  console.log("Svtion from AOMA", action)
 
   if (!['approve', 'reject'].includes(action)) {
     return res.status(400).json({ success: false, message: 'Invalid action provided.' });
@@ -211,7 +212,7 @@ exports.approveAOMARequest = async (req, res) => {
 exports.approveActivationRequest = async (req, res) => {
   const leadId = req.params.leadId;
   const { action } = req.body; // 'approve' or 'reject'
-
+ console.log('activation actiom', action)
   if (!['approve', 'reject'].includes(action)) {
     return res.status(400).json({ success: false, message: 'Invalid action provided.' });
   }
@@ -1247,7 +1248,7 @@ exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
     const search = req.query.search || "";
 
     // Build WHERE clause and queryParams array
-    let whereClause = `WHERE code_request_status = 'approved'`;
+    let whereClause = `WHERE code_request_status = 'approved' AND ms_details_sent ='pending'`;
     const queryParams = [];
 
     if (search) {

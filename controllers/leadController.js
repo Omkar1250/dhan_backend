@@ -153,7 +153,7 @@ exports.requestUnderUsApproval = async (req, res) => {
 
     const currentStatus = check[0].under_us_status;
 
-    if (["pending", "approved", "rejected"].includes(currentStatus)) {
+    if (["pending", "approved"].includes(currentStatus)) {
       return res.status(400).json({
         success: false,
         message: `You have already requested Under Us approval. Current status: '${currentStatus}'.`
@@ -223,7 +223,7 @@ exports.requestAOMAApproval = async (req, res) => {
     const rmId = req.user.id;
     const { useStar } = req.body; // Expecting true or false
     const screenshotPath = req.file ? req.file.path : null;
-
+    console.log("Printing star from aoma", useStar)
     if (!screenshotPath) {
       return res.status(400).json({
         success: false,
@@ -251,7 +251,7 @@ exports.requestAOMAApproval = async (req, res) => {
       fs.unlinkSync(lead.aoma_screenshot);
     }
 
-    if (useStar===true) {
+    if (useStar==="true") {
       // Check if RM has available stars
       const [[{ aoma_stars }]] = await db.execute(
         'SELECT aoma_stars FROM users WHERE id = ?',
@@ -337,6 +337,7 @@ exports.requestActivationApproval = async (req, res) => {
   const rmId = req.user.id;
   const { useStar } = req.body; // Expecting true or false
   const screenshotPath = req.file ? req.file.path : null;
+  console.log("Printing star from", useStar)
 
   if (!screenshotPath) {
     return res.status(400).json({
@@ -366,7 +367,7 @@ exports.requestActivationApproval = async (req, res) => {
       fs.unlinkSync(lead.activation_screenshot);
     }
 
-    if (useStar === true) {
+    if (useStar === "true") {
       // Check if RM has available stars
       const [[{ activation_stars }]] = await db.execute(
         'SELECT activation_stars FROM users WHERE id = ?',
