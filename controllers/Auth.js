@@ -76,6 +76,8 @@ exports.loginUser = async (req, res) => {
         ck_number: user.ck_number,
         user_id: user.userid,
         personal_number: user.personal_number,
+        aoma_stars:user.aoma_stars,
+        activation_stars:user.activation_stars,
         role,
       },
     });

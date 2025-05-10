@@ -5,5 +5,6 @@ const analyticsController = require('../controllers/analyticsController');
 
 // GET analytics summary with date range
 router.get('/summary', auth,  analyticsController.getSummary);
+router.get('/unfetchleads', auth, analyticsController.getUnfetchedLeadsCount)
 
 module.exports = router;

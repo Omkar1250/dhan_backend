@@ -536,62 +536,101 @@ exports.requestSipInterest = async (req, res) => {
 };
 
 //delete lead
-exports.deleteLead = async (req, res) => {
-const { leadId } = req.params; // Assuming the lead ID is passed in the URL
-const  rmId  = req.user.id; // Assuming the RM ID is passed in the request body
+// exports.deleteLead = async (req, res) => {
+// const { leadId } = req.params; // Assuming the lead ID is passed in the URL
+// const  rmId  = req.user.id; // Assuming the RM ID is passed in the request body
 
-if (!leadId || !rmId) {
-  return res.status(400).json({
-    success: false,
-    message: "Lead ID or RM ID is missing."
-  });
-}
+// if (!leadId || !rmId) {
+//   return res.status(400).json({
+//     success: false,
+//     message: "Lead ID or RM ID is missing."
+//   });
+// }
+//   try {
+//     // Check if lead exists and if RM has fetched this lead
+//     const [check] = await db.execute(`
+//       SELECT under_us_status FROM leads WHERE id = ? AND fetched_by = ?
+//     `, [leadId, rmId]);
+
+//     if (check.length === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Lead not found or not authorized."
+//       });
+//     }
+
+//     const currentStatus = check[0].under_us_status;
+
+//     // Check if lead is in a status where deletion is allowed
+//     if (["pending", "approved"].includes(currentStatus)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `Lead cannot be deleted because it has a status of '${currentStatus}'.`
+//       });
+//     }
+
+//     // Proceed to delete the lead if status is not one of the above
+//     const [result] = await db.execute(`
+//       DELETE FROM leads WHERE id = ? AND fetched_by = ?
+//     `, [leadId, rmId]);
+
+//     // Double-checking affectedRows (should be 1)
+//     if (result.affectedRows === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Lead not found or you're not authorized to delete it."
+//       });
+//     }
+
+//     // Success response
+//     res.status(200).json({
+//       success: true,
+//       message: "Lead deleted successfully."
+//     });
+//   } catch (error) {
+//     console.error("Error deleting lead:", error);
+//     res.status(500).json({ success: false, error: error.message });
+//   }
+// };
+exports.deleteLead = async (req, res) => {
+  const { leadId } = req.params;
+  const rmId = req.user.id;
+
+  if (!leadId || !rmId) {
+    return res.status(400).json({
+      success: false,
+      message: "Lead ID or RM ID is missing."
+    });
+  }
+
   try {
-    // Check if lead exists and if RM has fetched this lead
+    // Check if the lead is assigned to this RM
     const [check] = await db.execute(`
-      SELECT under_us_status FROM leads WHERE id = ? AND fetched_by = ?
+      SELECT id FROM leads WHERE id = ? AND fetched_by = ?
     `, [leadId, rmId]);
 
     if (check.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Lead not found or not authorized."
+        message: "Lead not found or not assigned to you."
       });
     }
 
-    const currentStatus = check[0].under_us_status;
-
-    // Check if lead is in a status where deletion is allowed
-    if (["pending", "approved"].includes(currentStatus)) {
-      return res.status(400).json({
-        success: false,
-        message: `Lead cannot be deleted because it has a status of '${currentStatus}'.`
-      });
-    }
-
-    // Proceed to delete the lead if status is not one of the above
+    // Remove the RM assignment from the lead
     const [result] = await db.execute(`
-      DELETE FROM leads WHERE id = ? AND fetched_by = ?
+      UPDATE leads SET fetched_by = NULL, fetched_at = NULL WHERE id = ? AND fetched_by = ?
     `, [leadId, rmId]);
 
-    // Double-checking affectedRows (should be 1)
-    if (result.affectedRows === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Lead not found or you're not authorized to delete it."
-      });
-    }
-
-    // Success response
     res.status(200).json({
       success: true,
-      message: "Lead deleted successfully."
+      message: "Lead successfully removed from your list."
     });
   } catch (error) {
-    console.error("Error deleting lead:", error);
+    console.error("Error removing lead from RM:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 
 
 
@@ -910,7 +949,8 @@ exports.fetchMsTeamsApprovedLeads = async (req, res) => {
 
     // Base query components
     const baseQuery = `FROM leads`;
-    let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved' AND ms_details_sent = 'approved'`
+   let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved' AND ms_details_sent = 'approved' AND (ms_teams_request_status IS NULL OR ms_teams_request_status != 'approved')`;
+
     const queryParams = [rmId];
 
     // Add search conditions if a search query is provided
@@ -971,7 +1011,7 @@ exports.fetchSipApprovedLeads = async (req, res) => {
 
     // Base query components
     const baseQuery = `FROM leads`;
-    let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved'`;
+   let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved' AND (sip_request_status IS NULL OR sip_request_status != 'approved')`;
     const queryParams = [rmId];
 
     // Add search conditions if a search query is provided

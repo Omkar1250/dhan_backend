@@ -2,7 +2,7 @@ const db = require('../config/db');
 
 exports.getSummary = async (req, res) => {
   const { startDate, endDate } = req.query;
-  const userId = req.user.id; // Get RM's ID from logged-in user
+  const userId = req.user.id;
 
   try {
     let whereConditions = 'fetched_by = ?';
@@ -23,6 +23,7 @@ exports.getSummary = async (req, res) => {
          SUM(CASE WHEN activation_request_status = 'approved' THEN 1 ELSE 0 END) AS activationDone,
          SUM(CASE WHEN ms_teams_request_status = 'approved' THEN 1 ELSE 0 END) AS msTeamsLogin,
          SUM(CASE WHEN sip_request_status = 'approved' THEN 1 ELSE 0 END) AS sipSetup
+
        FROM leads
        WHERE ${whereConditions}`,
       params
@@ -33,5 +34,23 @@ exports.getSummary = async (req, res) => {
   } catch (error) {
     console.error('Error fetching analytics summary:', error);
     res.status(500).json({ success: false, message: 'Server error fetching analytics summary.' });
+  }
+};
+
+
+exports.getUnfetchedLeadsCount = async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      `SELECT 
+         COUNT(*) AS unFetchedLeads
+       FROM leads
+       WHERE fetched_at IS NULL
+         AND (referred_by_rm IS NULL OR referred_by_rm = 0)`
+    );
+
+    res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    console.error('Error fetching unfetched leads:', error);
+    res.status(500).json({ success: false, message: 'Server error fetching unfetched leads.' });
   }
 };
