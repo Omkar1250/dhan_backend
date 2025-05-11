@@ -2,11 +2,60 @@ const db = require('../config/db');
 const fs = require("fs");
 
 // Fetch leads for RM
+// exports.fetchLeads = async (req, res) => {
+//   try {
+//     console.log("------")
+//     const rmId = req.user.id;
+//     console.log(rmId)
+//     // Check last fetch time
+//     const [lastFetch] = await db.execute(
+//       'SELECT MAX(fetched_at) as lastFetch FROM leads WHERE fetched_by = ?',
+//       [rmId]
+//     );
+
+//     const lastFetchTime = lastFetch[0].lastFetch;
+//     const now = new Date();
+
+//     if (lastFetchTime && (now - new Date(lastFetchTime)) / 60000 < 5) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `Please wait ${Math.ceil(5 - (now - new Date(lastFetchTime)) / 60000)} minutes before fetching leads again.`
+//       });
+//     }
+
+//     // Fetch 5 available leads
+//     const [leads] = await db.execute(
+//       'SELECT * FROM leads WHERE fetched_by IS NULL ORDER BY id DESC LIMIT 5'
+//     );
+
+//     if (leads.length === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'No leads available.'
+//       });
+//     }
+
+//     // Assign those leads to RM
+//     const leadIds = leads.map(l => l.id);
+//     await db.execute(
+//       `UPDATE leads SET fetched_by = ?, fetched_at = ? WHERE id IN (${leadIds.join(',')})`,
+//       [rmId, now]
+//     );
+
+//     res.status(200).json({
+//       success: true,
+//       message: 'Leads fetched successfully.',
+//       leads
+//     });
+
+//   } catch (error) {
+//     res.status(500).json({ success: false, error: error.message });
+//   }
+// };
 exports.fetchLeads = async (req, res) => {
   try {
-    console.log("------")
     const rmId = req.user.id;
-    console.log(rmId)
+
     // Check last fetch time
     const [lastFetch] = await db.execute(
       'SELECT MAX(fetched_at) as lastFetch FROM leads WHERE fetched_by = ?',
@@ -23,9 +72,13 @@ exports.fetchLeads = async (req, res) => {
       });
     }
 
-    // Fetch 5 available leads
+    // Fetch 5 available leads that are not already coded
     const [leads] = await db.execute(
-      'SELECT * FROM leads WHERE fetched_by IS NULL ORDER BY id DESC LIMIT 5'
+      `SELECT * FROM leads 
+       WHERE fetched_by IS NULL 
+       AND (code_request_status IS NULL OR code_request_status != 'approved') 
+       ORDER BY id DESC 
+       LIMIT 5`
     );
 
     if (leads.length === 0) {
@@ -35,7 +88,6 @@ exports.fetchLeads = async (req, res) => {
       });
     }
 
-    // Assign those leads to RM
     const leadIds = leads.map(l => l.id);
     await db.execute(
       `UPDATE leads SET fetched_by = ?, fetched_at = ? WHERE id IN (${leadIds.join(',')})`,
@@ -52,6 +104,7 @@ exports.fetchLeads = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 
 
 //leads list of particulat RM 
