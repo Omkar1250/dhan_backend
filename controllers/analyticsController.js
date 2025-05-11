@@ -44,7 +44,7 @@ exports.getUnfetchedLeadsCount = async (req, res) => {
       `SELECT 
          COUNT(*) AS unFetchedLeads
        FROM leads
-       WHERE fetched_by IS NULL OR fetched_by = 0`
+       WHERE fetched_by IS NULL`
     );
 
     res.json({ success: true, data: rows[0] });
