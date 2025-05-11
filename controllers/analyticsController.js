@@ -23,7 +23,6 @@ exports.getSummary = async (req, res) => {
          SUM(CASE WHEN activation_request_status = 'approved' THEN 1 ELSE 0 END) AS activationDone,
          SUM(CASE WHEN ms_teams_request_status = 'approved' THEN 1 ELSE 0 END) AS msTeamsLogin,
          SUM(CASE WHEN sip_request_status = 'approved' THEN 1 ELSE 0 END) AS sipSetup
-
        FROM leads
        WHERE ${whereConditions}`,
       params
@@ -38,14 +37,14 @@ exports.getSummary = async (req, res) => {
 };
 
 
+
 exports.getUnfetchedLeadsCount = async (req, res) => {
   try {
     const [rows] = await db.execute(
       `SELECT 
          COUNT(*) AS unFetchedLeads
        FROM leads
-       WHERE fetched_at IS NULL
-         AND (referred_by_rm IS NULL OR referred_by_rm = 0)`
+       WHERE fetched_by IS NULL OR fetched_by = 0`
     );
 
     res.json({ success: true, data: rows[0] });

@@ -1149,7 +1149,8 @@ exports.getAllLeadsForAdmin = async (req, res) => {
   }
 };
 
-//UNIVERSAL
+
+// UNIVERSAL
 exports.approveLeadAction = async (req, res) => {
   const { leadId } = req.params;
   const { action } = req.body;
@@ -1164,16 +1165,15 @@ exports.approveLeadAction = async (req, res) => {
   };
 
   try {
-    // Check if action is valid
     if (!validActions[action]) {
       return res.status(400).json({ message: "Invalid action" });
     }
 
     const { column, date } = validActions[action];
 
-    // Fetch lead's current status
+    // Fetch lead's current status and fetched_by
     const [results] = await db.query(
-      `SELECT under_us_status, code_request_status, aoma_request_status, activation_request_status, ms_teams_request_status, sip_request_status
+      `SELECT id, fetched_by, under_us_status, code_request_status, aoma_request_status, activation_request_status
        FROM leads WHERE id = ?`,
       [leadId]
     );
@@ -1183,61 +1183,244 @@ exports.approveLeadAction = async (req, res) => {
       return res.status(404).json({ message: "Lead not found" });
     }
 
-    // Log for debugging
-    console.log("Fetched Lead Data:", lead);
-
-    // Strict Validation Logic for Each Action
+    // Strict dependency validation
     switch (action) {
       case "code_request":
         if (lead.under_us_status !== "approved") {
           return res.status(400).json({ message: "First complete Under Us request" });
         }
         break;
-
       case "aoma_request":
         if (lead.code_request_status !== "approved") {
           return res.status(400).json({ message: "Please complete Code request first" });
         }
         break;
-
       case "activation_request":
         if (lead.aoma_request_status !== "approved") {
           return res.status(400).json({ message: "First complete AOMA request" });
         }
         break;
-
       case "ms_teams_request":
       case "sip_request":
         if (lead.code_request_status !== "approved") {
           return res.status(400).json({ message: "Code request must be approved first" });
         }
         break;
-
       case "under_us":
-        // No dependencies for "Under Us"
         break;
-
       default:
         return res.status(400).json({ message: "Invalid action" });
     }
+   
+    // Code Special Handling
+    if (action === "code_request") {
+      const [pointResult] = await db.execute(
+        'SELECT points FROM conversion_points WHERE action = "code_approved"'
+      );
 
-    // Update the status and date
+      const pointsToCredit = pointResult[0]?.points || 0;
+
+      // Credit wallet
+      await db.execute(
+        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+        [pointsToCredit, lead.fetched_by]
+      );
+
+      // Log transaction
+      await db.execute(
+        'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+        [lead.fetched_by, lead.id, 'code_approved', pointsToCredit]
+      );
+
+      // Update lead status
+      await db.execute(
+        'UPDATE leads SET code_request_status = "approved", code_approved_at = NOW() WHERE id = ?',
+        [leadId]
+      );
+      return res.status(200).json({
+        success: true,
+        message: 'Code request approved, points credited.',
+      });
+    }
+
+
+    // ⭐ AOMA SPECIAL HANDLING
+    if (action === "aoma_request") {
+      const [pointResult] = await db.execute(
+        'SELECT points FROM conversion_points WHERE action = "aoma_approved"'
+      );
+
+      const pointsToCredit = pointResult[0]?.points || 0;
+
+      // Credit wallet
+      await db.execute(
+        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+        [pointsToCredit, lead.fetched_by]
+      );
+
+      // Log transaction
+      await db.execute(
+        'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+        [lead.fetched_by, lead.id, 'aoma_approved', pointsToCredit]
+      );
+
+      // Update lead status
+      await db.execute(
+        'UPDATE leads SET aoma_request_status = "approved", aoma_approved_at = NOW() WHERE id = ?',
+        [leadId]
+      );
+
+      // Check and award AOMA star
+      const [[{ count }]] = await db.execute(
+        `SELECT COUNT(*) as count FROM leads WHERE fetched_by = ? AND aoma_request_status = 'approved'`,
+        [lead.fetched_by]
+      );
+
+      const [[{ setting_value: threshold }]] = await db.execute(
+        `SELECT setting_value FROM config WHERE setting_key = 'aoma_star_threshold'`
+      );
+
+      if (threshold && count % threshold === 0) {
+        await db.execute(
+          `UPDATE users SET aoma_stars = aoma_stars + 1 WHERE id = ?`,
+          [lead.fetched_by]
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'AOMA request approved, points credited, and stars updated if eligible.',
+      });
+    }
+
+    // ⭐ ACTIVATION SPECIAL HANDLING
+    if (action === "activation_request") {
+      const [pointResult] = await db.execute(
+        'SELECT points FROM conversion_points WHERE action = "activation_approved"'
+      );
+
+      const pointsToCredit = pointResult[0]?.points || 0;
+
+      // Credit wallet
+      await db.execute(
+        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+        [pointsToCredit, lead.fetched_by]
+      );
+
+      // Log transaction
+      await db.execute(
+        'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+        [lead.fetched_by, lead.id, 'activation_approved', pointsToCredit]
+      );
+
+      // Update lead status
+      await db.execute(
+        'UPDATE leads SET activation_request_status = "approved", activation_approved_at = NOW() WHERE id = ?',
+        [leadId]
+      );
+
+      // Check and award Activation stars
+      const [[{ count }]] = await db.execute(
+        `SELECT COUNT(*) as count FROM leads WHERE fetched_by = ? AND activation_request_status = 'approved'`,
+        [lead.fetched_by]
+      );
+
+      const [[{ setting_value: thresholdStr }]] = await db.execute(
+        `SELECT setting_value FROM config WHERE setting_key = 'activation_star_threshold'`
+      );
+
+      const threshold = parseInt(thresholdStr, 10);
+      if (threshold && !isNaN(threshold) && count % threshold === 0) {
+        await db.execute(
+          `UPDATE users SET activation_stars = activation_stars + 1 WHERE id = ?`,
+          [lead.fetched_by]
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Activation request approved, points credited, and stars updated if eligible.',
+      });
+    }
+
+    //Ms Teams
+    if (action === "ms_teams_request") {
+      const [pointResult] = await db.execute(
+        'SELECT points FROM conversion_points WHERE action = "ms_teams_approved"'
+      );
+
+      const pointsToCredit = pointResult[0]?.points || 0;
+
+      // Credit wallet
+      await db.execute(
+        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+        [pointsToCredit, lead.fetched_by]
+      );
+
+      // Log transaction
+      await db.execute(
+        'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+        [lead.fetched_by, lead.id, 'ms_teams_approved', pointsToCredit]
+      );
+
+      // Update lead status
+      await db.execute(
+        'UPDATE leads SET ms_teams_request_status = "approved", ms_teams_approved_at = NOW() WHERE id = ?',
+        [leadId]
+      );
+      return res.status(200).json({
+        success: true,
+        message: 'MsTeams request approved, points credited.',
+      });
+    }
+
+     //SIP
+    if (action === "sip_request") {
+      const [pointResult] = await db.execute(
+        'SELECT points FROM conversion_points WHERE action = "sip_approved"'
+      );
+
+      const pointsToCredit = pointResult[0]?.points || 0;
+
+      // Credit wallet
+      await db.execute(
+        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+        [pointsToCredit, lead.fetched_by]
+      );
+
+      // Log transaction
+      await db.execute(
+        'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+        [lead.fetched_by, lead.id, 'sip_approved', pointsToCredit]
+      );
+
+      // Update lead status
+      await db.execute(
+        'UPDATE leads SET sip_request_status = "approved", sip_approved_at = NOW() WHERE id = ?',
+        [leadId]
+      );
+      return res.status(200).json({
+        success: true,
+        message: 'Sip request approved, points credited.',
+      });
+    }
+
+
+    // ✅ GENERIC APPROVAL (for under_us, code_request, ms_teams_request, sip_request)
     const sql = `UPDATE leads SET ${column} = 'approved', ${date} = NOW() WHERE id = ?`;
     const [result] = await db.query(sql, [leadId]);
-
-    console.log("SQL Update Result:", result);
 
     if (result.affectedRows === 0) {
       return res.status(400).json({ message: "Failed to update lead status" });
     }
 
-    // Success Response
-    res.status(200).json({ message: `${action} approved successfully` });
+    res.status(200).json({ success: true, message: `${action} approved successfully` });
   } catch (error) {
     console.error("Approval error:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
 
 exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
   try {
