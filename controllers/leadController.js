@@ -224,12 +224,13 @@ exports.requestAOMAApproval = async (req, res) => {
     const { useStar } = req.body; // Expecting true or false
     const screenshotPath = req.file ? req.file.path : null;
     console.log("Printing star from aoma", useStar)
-    if (!screenshotPath) {
-      return res.status(400).json({
-        success: false,
-        message: "Screenshot is required for AOMA approval.",
-      });
-    }
+  if (useStar !== "true" && !screenshotPath) {
+  return res.status(400).json({
+    success: false,
+    message: "Screenshot is required for AOMA approval.",
+  });
+}
+
 
     // Check if the lead is eligible
     const [leadResult] = await db.execute(
@@ -294,7 +295,8 @@ exports.requestAOMAApproval = async (req, res) => {
          SET aoma_request_status = 'approved',
              aoma_requested_at = NOW(),
              aoma_approved_at = NOW(),
-             aoma_screenshot = ?
+             aoma_screenshot = ?,
+             aoma_auto_approved_by_star = TRUE
          WHERE id = ?`,
         [screenshotPath, leadId]
       );
@@ -339,12 +341,13 @@ exports.requestActivationApproval = async (req, res) => {
   const screenshotPath = req.file ? req.file.path : null;
   console.log("Printing star from", useStar)
 
-  if (!screenshotPath) {
-    return res.status(400).json({
-      success: false,
-      message: "Screenshot is required for Activation approval.",
-    });
-  }
+if (useStar !== "true" && !screenshotPath) {
+  return res.status(400).json({
+    success: false,
+    message: "Screenshot is required for Activation approval.",
+  });
+}
+
 
   try {
     // Check lead belongs to RM & is AOMA approved
@@ -366,6 +369,17 @@ exports.requestActivationApproval = async (req, res) => {
     if (lead.activation_screenshot && fs.existsSync(lead.activation_screenshot)) {
       fs.unlinkSync(lead.activation_screenshot);
     }
+    const [[{ aoma_auto_approved_by_star }]] = await db.execute(
+  'SELECT aoma_auto_approved_by_star FROM leads WHERE id = ?',
+  [leadId]
+);
+
+if (aoma_auto_approved_by_star && useStar === "true") {
+  return res.status(400).json({
+    success: false,
+    message: "You cannot use a star for Activation on a lead that was AOMA auto-approved using a star.",
+  });
+}
 
     if (useStar === "true") {
       // Check if RM has available stars
@@ -634,6 +648,8 @@ exports.deleteLead = async (req, res) => {
 
 
 
+
+
 //underus approved
 exports.fetchLeadsUnderUsapproved = async (req, res) => {
   try {
@@ -715,24 +731,24 @@ exports.fetchLeadsUnderUsapproved = async (req, res) => {
 };
 
 //Coded approved
+// Code Approved - Visible only for 20 days after code_approved_at
 exports.fetchCodeApprovedLeads = async (req, res) => {
   try {
     const rmId = req.user.id;
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
-    const search = req.query.search || ""; // Search query for filtering leads
+    const search = req.query.search || "";
 
-    // Base query components
     const baseQuery = `FROM leads`;
     let whereClause = `
       WHERE fetched_by = ? 
       AND code_request_status = 'approved' 
       AND (aoma_request_status IS NULL OR aoma_request_status != 'approved')
+      AND code_approved_at >= NOW() - INTERVAL 20 DAY
     `;
     const queryParams = [rmId];
 
-    // Add search conditions if a search query is provided
     if (search) {
       whereClause += `
         AND (
@@ -745,35 +761,31 @@ exports.fetchCodeApprovedLeads = async (req, res) => {
       queryParams.push(keyword, keyword, keyword);
     }
 
-    // Count query to get total approved leads
     const [totalResult] = await db.execute(
-      `SELECT COUNT(*) as total ${baseQuery}${whereClause}`,
+      `SELECT COUNT(*) as total ${baseQuery} ${whereClause}`,
       queryParams
     );
     const totalCodedLeads = totalResult[0]?.total || 0;
     const totalPages = Math.ceil(totalCodedLeads / limit);
 
-    // Fetch query to get paginated approved leads
     const fetchQuery = `
       SELECT * 
-      ${baseQuery}${whereClause} 
+      ${baseQuery} ${whereClause} 
       ORDER BY fetched_at ASC 
       LIMIT ${limit} OFFSET ${offset}
     `;
     const [codedApproved] = await db.execute(fetchQuery, queryParams);
 
-    // If no approved leads are found, return a 404 response
     if (codedApproved.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "No Code Approved leads found for this RM.",
+        message: "No Code Approved leads found within 20 days.",
       });
     }
 
-    // Return a successful response with approved leads data
     return res.status(200).json({
       success: true,
-      message: "Code Approved leads fetched successfully.",
+      message: "Code Approved leads (within 20 days) fetched successfully.",
       codedApproved,
       totalCodedLeads,
       totalPages,
@@ -782,7 +794,6 @@ exports.fetchCodeApprovedLeads = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching Code Approved leads:", error);
-    // Handle unexpected errors and return a 500 response
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -790,6 +801,8 @@ exports.fetchCodeApprovedLeads = async (req, res) => {
     });
   }
 };
+
+
 
 // AOMA approved 
 exports.fetchAOMAApprovedLeads = async (req, res) => {
@@ -806,6 +819,7 @@ exports.fetchAOMAApprovedLeads = async (req, res) => {
       WHERE fetched_by = ? 
       AND aoma_request_status = 'approved' 
       AND (activation_request_status IS NULL OR activation_request_status != 'approved')
+      AND code_approved_at >= NOW() - INTERVAL 20 DAY
     `;
     const queryParams = [rmId];
 
@@ -1094,6 +1108,38 @@ exports.LeadDeleteToAdmin = async (req, res) => {
     );
 
     res.json({ success: true, message: 'Lead marked for deletion and sent to admin delete list' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.fetchStars = async (req, res) => {
+  try {
+    const rmId = req.user.id;
+
+    if (!rmId) {
+      return res.status(404).json({
+        success: false,
+        message: "RM id not found",
+      });
+    }
+
+    const [aomaResult] = await db.execute(
+      'SELECT aoma_stars FROM users WHERE id = ?',
+      [rmId]
+    );
+    const [activationResult] = await db.execute(
+      'SELECT activation_stars FROM users WHERE id = ?',
+      [rmId]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Stars fetched successfully",
+      aoma_stars: aomaResult[0]?.aoma_stars || 0,
+      activation_stars: activationResult[0]?.activation_stars || 0,
+    });
+
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

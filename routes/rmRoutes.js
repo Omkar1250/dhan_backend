@@ -46,6 +46,8 @@ router.get('/get-activation-approved-list', auth, leadController.fetchActivation
 router.get('/get-ms-teams-approved-list', auth, leadController.fetchMsTeamsApprovedLeads )
 router.get('/get-sip-approved-list', auth, leadController.fetchSipApprovedLeads )
 
+//fetch stars
+router.get('/stars', auth, leadController.fetchStars)
 //Route to request aoma
 
 router.post(

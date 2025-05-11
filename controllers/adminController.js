@@ -94,7 +94,6 @@ exports.handleCodeApproval = async (req, res) => {
       await db.execute(
         `UPDATE leads 
          SET code_request_status = 'rejected', 
-             code_approved_at = NOW() 
          WHERE id = ?`,
         [leadId]
       );
@@ -863,7 +862,7 @@ exports.getAnalyticsSummary = async (req, res) => {
 
     // Define all queries with individual clauses
     const queries = {
-      fetchedLeads: `SELECT COUNT(*) AS count FROM leads ${whereClause}`,
+     fetchedLeads: `SELECT COUNT(*) AS count FROM leads ${whereClause}${whereClause ? ' AND' : 'WHERE'} fetched_by IS NOT NULL AND referred_by_rm IS NULL`,
       referredLeads: `SELECT COUNT(*) AS count FROM leads ${whereClause}${whereClause ? ' AND' : 'WHERE'} referred_by_rm IS NOT NULL`,
       underUs: `SELECT COUNT(*) AS count FROM leads ${whereClause}${whereClause ? ' AND' : 'WHERE'} under_us_status = 'approved'`,
       codeApproved: `SELECT COUNT(*) AS count FROM leads ${whereClause}${whereClause ? ' AND' : 'WHERE'} code_request_status = 'approved'`,
@@ -1350,6 +1349,45 @@ exports.msTeamsDetailsSent = async( req, res) => {
     res.status(500).json({ success: false, message: 'Server error while sending request.', error: error.message });
   }
 };
+
+exports.adminDeleteLead = async (req, res) => {
+  const { leadId } = req.params;
+
+  if (!leadId) {
+    return res.status(400).json({
+      success: false,
+      message: "Lead ID is required."
+    });
+  }
+
+  try {
+    // Check if the lead exists
+    const [check] = await db.execute(`SELECT id FROM leads WHERE id = ?`, [leadId]);
+
+    if (check.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found."
+      });
+    }
+
+    // Permanently delete the lead
+    await db.execute(`DELETE FROM leads WHERE id = ?`, [leadId]);
+
+    return res.status(200).json({
+      success: true,
+      message: "Lead permanently deleted by admin."
+    });
+  } catch (error) {
+    console.error("Admin delete error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message
+    });
+  }
+};
+
 
 
 
