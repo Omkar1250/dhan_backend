@@ -111,58 +111,148 @@ exports.handleCodeApproval = async (req, res) => {
 
 
 //aoma approve handler
+// exports.approveAOMARequest = async (req, res) => {
+//   const leadId = req.params.leadId;
+//   const { action } = req.body; // 'approve' or 'reject'
+//   console.log("Svtion from AOMA", action)
+
+//   if (!['approve', 'reject'].includes(action)) {
+//     return res.status(400).json({ success: false, message: 'Invalid action provided.' });
+//   }
+
+//   try {
+//     // Check if lead exists and is in requested state
+//     const [leadResult] = await db.execute(
+//       'SELECT * FROM leads WHERE id = ? AND aoma_request_status = "requested"',
+//       [leadId]
+//     );
+
+//     if (leadResult.length === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Lead not found or not in requested status.',
+//       });
+//     }
+
+//     const lead = leadResult[0];
+
+//     if (action === 'approve') {
+//       // ✅ Credit Wallet
+//       const [pointResult] = await db.execute(
+//         'SELECT points FROM conversion_points WHERE action = "aoma_approved"'
+//       );
+
+//       const pointsToCredit = pointResult[0]?.points || 0;
+
+//       await db.execute(
+//         'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+//         [pointsToCredit, lead.fetched_by]
+//       );
+
+//       await db.execute(
+//         'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+//         [lead.fetched_by, lead.id, 'aoma_approved', pointsToCredit]
+//       );
+
+//       // ✅ Update lead status
+//       await db.execute(
+//         'UPDATE leads SET aoma_request_status = "approved", aoma_approved_at = NOW() WHERE id = ?',
+//         [leadId]
+//       );
+
+//       // ✅ Check and update AOMA star
+//       const [[{ count }]] = await db.execute(
+//         `SELECT COUNT(*) as count FROM leads WHERE fetched_by = ? AND aoma_request_status = 'approved'`,
+//         [lead.fetched_by]
+//       );
+
+//       const [[{ setting_value: threshold }]] = await db.execute(
+//         `SELECT setting_value FROM config WHERE setting_key = 'aoma_star_threshold'`
+//       );
+
+//       if (threshold && count % threshold === 0) {
+//         await db.execute(
+//           `UPDATE users SET aoma_stars = aoma_stars + 1 WHERE id = ?`,
+//           [lead.fetched_by]
+//         );
+//       }
+
+//       return res.status(200).json({
+//         success: true,
+//         message: 'AOMA request approved, points credited, and stars updated if eligible.',
+//       });
+
+//     } else {
+//       // Reject case
+//       await db.execute(
+//         'UPDATE leads SET aoma_request_status = "rejected" WHERE id = ?',
+//         [leadId]
+//       );
+
+//       return res.status(200).json({
+//         success: true,
+//         message: 'AOMA request rejected successfully.',
+//       });
+//     }
+
+//   } catch (error) {
+//     console.error('Error processing AOMA request:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Server error while processing AOMA request.',
+//     });
+//   }
+// };
+
 exports.approveAOMARequest = async (req, res) => {
   const leadId = req.params.leadId;
-  const { action } = req.body; // 'approve' or 'reject'
-  console.log("Svtion from AOMA", action)
+  const { action } = req.body;
 
   if (!['approve', 'reject'].includes(action)) {
-    return res.status(400).json({ success: false, message: 'Invalid action provided.' });
+    return res.status(400).json({ success: false, message: 'Invalid action.' });
   }
 
   try {
-    // Check if lead exists and is in requested state
+    // Get lead and validate
     const [leadResult] = await db.execute(
       'SELECT * FROM leads WHERE id = ? AND aoma_request_status = "requested"',
       [leadId]
     );
 
     if (leadResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Lead not found or not in requested status.',
-      });
+      return res.status(404).json({ success: false, message: 'Lead not found or not in requested state.' });
     }
 
     const lead = leadResult[0];
 
     if (action === 'approve') {
-      // ✅ Credit Wallet
+      // Credit wallet
       const [pointResult] = await db.execute(
         'SELECT points FROM conversion_points WHERE action = "aoma_approved"'
       );
 
       const pointsToCredit = pointResult[0]?.points || 0;
 
-      await db.execute(
-        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
-        [pointsToCredit, lead.fetched_by]
-      );
+      await db.execute('UPDATE users SET wallet = wallet + ? WHERE id = ?', [
+        pointsToCredit,
+        lead.fetched_by,
+      ]);
 
       await db.execute(
         'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
         [lead.fetched_by, lead.id, 'aoma_approved', pointsToCredit]
       );
 
-      // ✅ Update lead status
       await db.execute(
         'UPDATE leads SET aoma_request_status = "approved", aoma_approved_at = NOW() WHERE id = ?',
         [leadId]
       );
 
-      // ✅ Check and update AOMA star
+      // ⭐ Star Logic
       const [[{ count }]] = await db.execute(
-        `SELECT COUNT(*) as count FROM leads WHERE fetched_by = ? AND aoma_request_status = 'approved'`,
+        `SELECT COUNT(*) AS count FROM leads 
+         WHERE fetched_by = ? AND aoma_request_status = 'approved' 
+         AND (aoma_star_used IS NULL OR aoma_star_used != 1)`,
         [lead.fetched_by]
       );
 
@@ -170,20 +260,29 @@ exports.approveAOMARequest = async (req, res) => {
         `SELECT setting_value FROM config WHERE setting_key = 'aoma_star_threshold'`
       );
 
-      if (threshold && count % threshold === 0) {
+      const [[user]] = await db.execute(
+        'SELECT aoma_stars, aoma_star_progress FROM users WHERE id = ?',
+        [lead.fetched_by]
+      );
+
+      const progress = count - user.aoma_star_progress;
+
+      if (progress >= threshold) {
+        const starsToAdd = Math.floor(progress / threshold);
+        const newProgress = user.aoma_star_progress + starsToAdd * threshold;
+
         await db.execute(
-          `UPDATE users SET aoma_stars = aoma_stars + 1 WHERE id = ?`,
-          [lead.fetched_by]
+          'UPDATE users SET aoma_stars = aoma_stars + ?, aoma_star_progress = ? WHERE id = ?',
+          [starsToAdd, newProgress, lead.fetched_by]
         );
       }
 
       return res.status(200).json({
         success: true,
-        message: 'AOMA request approved, points credited, and stars updated if eligible.',
+        message: 'AOMA approved, wallet credited, stars updated.',
       });
 
     } else {
-      // Reject case
       await db.execute(
         'UPDATE leads SET aoma_request_status = "rejected" WHERE id = ?',
         [leadId]
@@ -191,18 +290,20 @@ exports.approveAOMARequest = async (req, res) => {
 
       return res.status(200).json({
         success: true,
-        message: 'AOMA request rejected successfully.',
+        message: 'AOMA rejected.',
       });
     }
 
   } catch (error) {
-    console.error('Error processing AOMA request:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while processing AOMA request.',
-    });
+    console.error('AOMA approval error:', error);
+    res.status(500).json({ success: false, message: 'Server error.' });
   }
 };
+
+
+
+
+
 
 
 
@@ -1154,6 +1255,7 @@ exports.getAllLeadsForAdmin = async (req, res) => {
 exports.approveLeadAction = async (req, res) => {
   const { leadId } = req.params;
   const { action } = req.body;
+  const {batch_code} = req.body;
 
   const validActions = {
     under_us: { column: "under_us_status", date: "under_us_approved_at" },
@@ -1233,9 +1335,16 @@ exports.approveLeadAction = async (req, res) => {
       );
 
       // Update lead status
-      await db.execute(
-        'UPDATE leads SET code_request_status = "approved", code_approved_at = NOW() WHERE id = ?',
-        [leadId]
+       await db.execute(
+        `UPDATE leads 
+         SET 
+           code_request_status = 'approved',
+           code_approved_at = NOW(),
+           batch_code = ?,
+           sip_request_status = 'pending',
+           ms_teams_request_status = 'pending'
+         WHERE id = ?`,
+        [batch_code, leadId]
       );
       return res.status(200).json({
         success: true,
@@ -1544,8 +1653,10 @@ exports.adminDeleteLead = async (req, res) => {
   }
 
   try {
-    // Check if the lead exists
-    const [check] = await db.execute(`SELECT id FROM leads WHERE id = ?`, [leadId]);
+    // Check if the lead exists and get its code approval status
+    const [check] = await db.execute(`
+      SELECT id, code_request_status FROM leads WHERE id = ?
+    `, [leadId]);
 
     if (check.length === 0) {
       return res.status(404).json({
@@ -1554,7 +1665,17 @@ exports.adminDeleteLead = async (req, res) => {
       });
     }
 
-    // Permanently delete the lead
+    const lead = check[0];
+
+    // Block deletion if Code is approved
+    if (lead.code_request_status === 'approved') {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot delete lead. Code is already approved."
+      });
+    }
+
+    // Proceed with deletion
     await db.execute(`DELETE FROM leads WHERE id = ?`, [leadId]);
 
     return res.status(200).json({
@@ -1565,11 +1686,71 @@ exports.adminDeleteLead = async (req, res) => {
     console.error("Admin delete error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal Server Error",
+      message: "Lead is available in Delete Request list First delete from there",
       error: error.message
     });
   }
 };
+
+
+exports.deleteLeadFromDeleteRequest = async (req, res) => {
+  const { leadId } = req.params;
+
+  if (!leadId) {
+    return res.status(400).json({
+      success: false,
+      message: "Lead ID is required."
+    });
+  }
+
+  try {
+    // Check if the lead exists in admin_delete_list
+    const [check] = await db.execute(`
+      SELECT lead_id FROM admin_delete_list WHERE lead_id = ?
+    `, [leadId]);
+
+    if (check.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found in delete request list."
+      });
+    }
+
+    // Check if the lead still exists in leads table
+    const [check1] = await db.execute(`
+      SELECT id FROM leads WHERE id = ?
+    `, [leadId]);
+
+    if (check1.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead already deleted from main list."
+      });
+    }
+
+    // First delete from admin_delete_list to avoid FK error
+    await db.execute(`DELETE FROM admin_delete_list WHERE lead_id = ?`, [leadId]);
+
+    // Then delete from leads
+    await db.execute(`DELETE FROM leads WHERE id = ?`, [leadId]);
+
+    return res.status(200).json({
+      success: true,
+      message: "Lead permanently deleted by admin."
+    });
+  } catch (error) {
+    console.error("Admin delete error:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+
+
+
+
 
 
 

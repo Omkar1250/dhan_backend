@@ -276,7 +276,7 @@ exports.requestAOMAApproval = async (req, res) => {
     const rmId = req.user.id;
     const { useStar } = req.body; // Expecting true or false
     const screenshotPath = req.file ? req.file.path : null;
-    console.log("Printing star from aoma", useStar)
+ 
   if (useStar !== "true" && !screenshotPath) {
   return res.status(400).json({
     success: false,
@@ -671,9 +671,9 @@ exports.deleteLead = async (req, res) => {
   }
 
   try {
-    // Check if the lead is assigned to this RM
+    // Check if the lead is assigned to this RM and get its code_approved_status
     const [check] = await db.execute(`
-      SELECT id FROM leads WHERE id = ? AND fetched_by = ?
+      SELECT id, code_request_status FROM leads WHERE id = ? AND fetched_by = ?
     `, [leadId, rmId]);
 
     if (check.length === 0) {
@@ -683,9 +683,19 @@ exports.deleteLead = async (req, res) => {
       });
     }
 
+    const lead = check[0];
+
+    // Don't allow deletion if code is already approved
+    if (lead.code_request_status === 'approved') {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot delete this lead because it is already Code Approved."
+      });
+    }
+
     // Remove the RM assignment from the lead
-    const [result] = await db.execute(`
-      UPDATE leads SET fetched_by = NULL, fetched_at = NULL WHERE id = ? AND fetched_by = ?
+    await db.execute(`
+      UPDATE leads SET fetched_by = -1, fetched_at = NULL WHERE id = ? AND fetched_by = ?
     `, [leadId, rmId]);
 
     res.status(200).json({
@@ -697,6 +707,7 @@ exports.deleteLead = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 
 
 

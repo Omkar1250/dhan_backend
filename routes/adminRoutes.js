@@ -52,6 +52,7 @@ router.get("/get-list-msteams-login", auth, isAdmin, adminController.fetchMsTeam
 router.post("/ms-teams-details/:leadId", auth, isAdmin, adminController.msTeamsDetailsSent)
 
 router.delete("/admin/delete-lead/:leadId", auth, adminController.adminDeleteLead)
+router.delete("/delete/lead-delete-from-list/:leadId", auth, isAdmin, adminController.deleteLeadFromDeleteRequest)
 
 
 
