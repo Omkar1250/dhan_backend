@@ -422,17 +422,17 @@ if (useStar !== "true" && !screenshotPath) {
     if (lead.activation_screenshot && fs.existsSync(lead.activation_screenshot)) {
       fs.unlinkSync(lead.activation_screenshot);
     }
-    const [[{ aoma_auto_approved_by_star }]] = await db.execute(
-  'SELECT aoma_auto_approved_by_star FROM leads WHERE id = ?',
-  [leadId]
-);
+//     const [[{ aoma_auto_approved_by_star }]] = await db.execute(
+//   'SELECT aoma_auto_approved_by_star FROM leads WHERE id = ?',
+//   [leadId]
+// );
 
-if (aoma_auto_approved_by_star && useStar === "true") {
-  return res.status(400).json({
-    success: false,
-    message: "You cannot use a star for Activation on a lead that was AOMA auto-approved using a star.",
-  });
-}
+// if (aoma_auto_approved_by_star && useStar === "true") {
+//   return res.status(400).json({
+//     success: false,
+//     message: "You cannot use a star for Activation on a lead that was AOMA auto-approved using a star.",
+//   });
+// }
 
     if (useStar === "true") {
       // Check if RM has available stars
@@ -798,7 +798,7 @@ exports.fetchCodeApprovedLeads = async (req, res) => {
       WHERE fetched_by = ? 
       AND code_request_status = 'approved' 
       AND (aoma_request_status IS NULL OR aoma_request_status != 'approved')
-      AND code_approved_at >= NOW() - INTERVAL 20 DAY
+      AND code_approved_at >= NOW() - INTERVAL 14 DAY
     `;
     const queryParams = [rmId];
 
@@ -872,7 +872,7 @@ exports.fetchAOMAApprovedLeads = async (req, res) => {
       WHERE fetched_by = ? 
       AND aoma_request_status = 'approved' 
       AND (activation_request_status IS NULL OR activation_request_status != 'approved')
-      AND code_approved_at >= NOW() - INTERVAL 20 DAY
+      AND code_approved_at >= NOW() - INTERVAL 14 DAY
     `;
     const queryParams = [rmId];
 
@@ -949,9 +949,10 @@ exports.fetchActivationApprovedLeads = async (req, res) => {
     // Base query
     const baseQuery = `FROM leads`;
     let whereClause = ` WHERE fetched_by = ? 
-                         AND activation_request_status = 'approved'
-                         AND activation_approved_at IS NOT NULL
-                         AND activation_approved_at >= (NOW() - INTERVAL 30 DAY)`;
+                    AND activation_request_status = 'approved'
+                    AND activation_approved_at IS NOT NULL
+                    AND code_approved_at >= NOW() - INTERVAL 14 DAY`;
+
     const queryParams = [rmId];
 
     // Optional search filter
@@ -1016,7 +1017,11 @@ exports.fetchMsTeamsApprovedLeads = async (req, res) => {
 
     // Base query components
     const baseQuery = `FROM leads`;
-   let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved' AND ms_details_sent = 'approved' AND (ms_teams_request_status IS NULL OR ms_teams_request_status != 'approved')`;
+   let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved'
+    AND ms_details_sent = 'approved'
+
+     AND (ms_teams_request_status IS NULL OR ms_teams_request_status != 'approved')
+      AND code_approved_at >= NOW() - INTERVAL 14 DAY`;
 
     const queryParams = [rmId];
 
@@ -1078,7 +1083,9 @@ exports.fetchSipApprovedLeads = async (req, res) => {
 
     // Base query components
     const baseQuery = `FROM leads`;
-   let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved' AND (sip_request_status IS NULL OR sip_request_status != 'approved')`;
+   let whereClause = ` WHERE fetched_by = ? AND code_request_status = 'approved' 
+   AND (sip_request_status IS NULL OR sip_request_status != 'approved')
+    AND code_approved_at >= NOW() - INTERVAL 14 DAY`;
     const queryParams = [rmId];
 
     // Add search conditions if a search query is provided
