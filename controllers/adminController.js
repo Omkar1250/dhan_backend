@@ -176,6 +176,10 @@ exports.handleCodeApproval = async (req, res) => {
 //           [lead.fetched_by]
 //         );
 //       }
+//       console.log("Approved AOMA count for user:", count);
+// console.log("Threshold from config:", threshold);
+// console.log("Should credit star?", count % threshold === 0);
+
 
 //       return res.status(200).json({
 //         success: true,
@@ -203,56 +207,61 @@ exports.handleCodeApproval = async (req, res) => {
 //     });
 //   }
 // };
-
 exports.approveAOMARequest = async (req, res) => {
   const leadId = req.params.leadId;
-  const { action } = req.body;
+  const { action } = req.body; // 'approve' or 'reject'
+  console.log("Action from AOMA:", action);
 
   if (!['approve', 'reject'].includes(action)) {
-    return res.status(400).json({ success: false, message: 'Invalid action.' });
+    return res.status(400).json({ success: false, message: 'Invalid action provided.' });
   }
 
   try {
-    // Get lead and validate
+    // Check if lead exists and is in requested state
     const [leadResult] = await db.execute(
       'SELECT * FROM leads WHERE id = ? AND aoma_request_status = "requested"',
       [leadId]
     );
 
     if (leadResult.length === 0) {
-      return res.status(404).json({ success: false, message: 'Lead not found or not in requested state.' });
+      return res.status(404).json({
+        success: false,
+        message: 'Lead not found or not in requested status.',
+      });
     }
 
     const lead = leadResult[0];
 
     if (action === 'approve') {
-      // Credit wallet
+      // ✅ Credit Wallet
       const [pointResult] = await db.execute(
         'SELECT points FROM conversion_points WHERE action = "aoma_approved"'
       );
 
       const pointsToCredit = pointResult[0]?.points || 0;
 
-      await db.execute('UPDATE users SET wallet = wallet + ? WHERE id = ?', [
-        pointsToCredit,
-        lead.fetched_by,
-      ]);
+      await db.execute(
+        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+        [pointsToCredit, lead.fetched_by]
+      );
 
       await db.execute(
         'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
         [lead.fetched_by, lead.id, 'aoma_approved', pointsToCredit]
       );
 
+      // ✅ Update lead status
       await db.execute(
         'UPDATE leads SET aoma_request_status = "approved", aoma_approved_at = NOW() WHERE id = ?',
         [leadId]
       );
 
-      // ⭐ Star Logic
+      // ✅ Check and update AOMA star
       const [[{ count }]] = await db.execute(
-        `SELECT COUNT(*) AS count FROM leads 
-         WHERE fetched_by = ? AND aoma_request_status = 'approved' 
-         AND (aoma_star_used IS NULL OR aoma_star_used != 1)`,
+        `SELECT COUNT(*) as count FROM leads 
+         WHERE fetched_by = ? 
+           AND aoma_request_status = 'approved' 
+           AND (aoma_auto_approved_by_star IS NULL OR aoma_auto_approved_by_star = FALSE)`,
         [lead.fetched_by]
       );
 
@@ -260,29 +269,22 @@ exports.approveAOMARequest = async (req, res) => {
         `SELECT setting_value FROM config WHERE setting_key = 'aoma_star_threshold'`
       );
 
-      const [[user]] = await db.execute(
-        'SELECT aoma_stars, aoma_star_progress FROM users WHERE id = ?',
-        [lead.fetched_by]
-      );
+      const numericThreshold = parseInt(threshold);
 
-      const progress = count - user.aoma_star_progress;
-
-      if (progress >= threshold) {
-        const starsToAdd = Math.floor(progress / threshold);
-        const newProgress = user.aoma_star_progress + starsToAdd * threshold;
-
+      if (numericThreshold && count % numericThreshold === 0) {
         await db.execute(
-          'UPDATE users SET aoma_stars = aoma_stars + ?, aoma_star_progress = ? WHERE id = ?',
-          [starsToAdd, newProgress, lead.fetched_by]
+          `UPDATE users SET aoma_stars = aoma_stars + 1 WHERE id = ?`,
+          [lead.fetched_by]
         );
       }
 
       return res.status(200).json({
         success: true,
-        message: 'AOMA approved, wallet credited, stars updated.',
+        message: 'AOMA request approved, points credited, and stars updated if eligible.',
       });
 
     } else {
+      // Reject case
       await db.execute(
         'UPDATE leads SET aoma_request_status = "rejected" WHERE id = ?',
         [leadId]
@@ -290,15 +292,20 @@ exports.approveAOMARequest = async (req, res) => {
 
       return res.status(200).json({
         success: true,
-        message: 'AOMA rejected.',
+        message: 'AOMA request rejected successfully.',
       });
     }
 
   } catch (error) {
-    console.error('AOMA approval error:', error);
-    res.status(500).json({ success: false, message: 'Server error.' });
+    console.error('Error processing AOMA request:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while processing AOMA request.',
+    });
   }
 };
+
+
 
 
 
@@ -1380,8 +1387,12 @@ exports.approveLeadAction = async (req, res) => {
       );
 
       // Check and award AOMA star
+             // ✅ Check and update AOMA star
       const [[{ count }]] = await db.execute(
-        `SELECT COUNT(*) as count FROM leads WHERE fetched_by = ? AND aoma_request_status = 'approved'`,
+        `SELECT COUNT(*) as count FROM leads 
+         WHERE fetched_by = ? 
+           AND aoma_request_status = 'approved' 
+           AND (aoma_auto_approved_by_star IS NULL OR aoma_auto_approved_by_star = FALSE)`,
         [lead.fetched_by]
       );
 
@@ -1389,7 +1400,9 @@ exports.approveLeadAction = async (req, res) => {
         `SELECT setting_value FROM config WHERE setting_key = 'aoma_star_threshold'`
       );
 
-      if (threshold && count % threshold === 0) {
+      const numericThreshold = parseInt(threshold);
+
+      if (numericThreshold && count % numericThreshold === 0) {
         await db.execute(
           `UPDATE users SET aoma_stars = aoma_stars + 1 WHERE id = ?`,
           [lead.fetched_by]
