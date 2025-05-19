@@ -93,7 +93,7 @@ exports.handleCodeApproval = async (req, res) => {
     } else if (action === 'reject') {
       await db.execute(
         `UPDATE leads 
-         SET code_request_status = 'rejected', 
+         SET code_request_status = 'rejected'
          WHERE id = ?`,
         [leadId]
       );
@@ -1199,6 +1199,64 @@ exports.getDeleteRequestsList = async (req, res) => {
 // };
 
 
+// exports.getAllLeadsForAdmin = async (req, res) => {
+//   try {
+//     const page = parseInt(req.query.page, 10) || 1;
+//     const limit = parseInt(req.query.limit, 10) || 10;
+//     const offset = (page - 1) * limit;
+//     const search = req.query.search || "";
+
+//     let baseQuery = `FROM leads`;
+//     let whereClause = ` WHERE 1=1`; // Always true to allow appending conditions easily
+//     const queryParams = [];
+
+//     if (search) {
+//       whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+//       const keyword = `%${search.toLowerCase()}%`;
+//       queryParams.push(keyword, keyword, keyword);
+//     }
+
+//     // Count query to get the total number of leads
+//     const [countResult] = await db.execute(
+//       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+//       queryParams
+//     );
+//     const totalTrailList = countResult[0]?.total || 0;
+//     const totalPages = Math.ceil(totalTrailList / limit);
+
+//     // Fetch query to get leads with pagination
+//     const fetchQuery = `SELECT id, name, mobile_number,whatsapp_mobile_number, under_us_status, code_request_status, 
+//                         aoma_request_status, activation_request_status, ms_teams_request_status, sip_request_status 
+//                         ${baseQuery}${whereClause} 
+//                         ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+//     const [trails] = await db.execute(fetchQuery, queryParams);
+
+//     if (trails.length === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "No leads found.",
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Leads fetched successfully.",
+//       totalTrailList,
+//       trails,
+//       totalPages,
+//       currentPage: page,
+//       perPage: limit,
+//     });
+//   } catch (err) {
+//     console.error("Error fetching leads:", err);
+//     res.status(500).json({
+//       success: false,
+//       message: "Internal Server Error",
+//       error: err.message,
+//     });
+//   }
+// };
+
 exports.getAllLeadsForAdmin = async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
@@ -1206,17 +1264,17 @@ exports.getAllLeadsForAdmin = async (req, res) => {
     const offset = (page - 1) * limit;
     const search = req.query.search || "";
 
-    let baseQuery = `FROM leads`;
-    let whereClause = ` WHERE 1=1`; // Always true to allow appending conditions easily
+    let baseQuery = `FROM leads LEFT JOIN users ON leads.fetched_by = users.id`;
+    let whereClause = ` WHERE 1=1`;
     const queryParams = [];
 
     if (search) {
-      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      whereClause += ` AND (LOWER(leads.name) LIKE ? OR LOWER(leads.mobile_number) LIKE ? OR CAST(leads.id AS CHAR) LIKE ? OR LOWER(users.name) LIKE ?)`;
       const keyword = `%${search.toLowerCase()}%`;
-      queryParams.push(keyword, keyword, keyword);
+      queryParams.push(keyword, keyword, keyword, keyword);
     }
 
-    // Count query to get the total number of leads
+    // Count query
     const [countResult] = await db.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
@@ -1224,11 +1282,17 @@ exports.getAllLeadsForAdmin = async (req, res) => {
     const totalTrailList = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalTrailList / limit);
 
-    // Fetch query to get leads with pagination
-    const fetchQuery = `SELECT id, name, mobile_number,whatsapp_mobile_number, under_us_status, code_request_status, 
-                        aoma_request_status, activation_request_status, ms_teams_request_status, sip_request_status 
-                        ${baseQuery}${whereClause} 
-                        ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    // Fetch query with JRM name
+    const fetchQuery = `
+      SELECT leads.id, leads.name, leads.mobile_number, leads.whatsapp_mobile_number,
+             leads.under_us_status, leads.code_request_status, leads.aoma_request_status,
+             leads.activation_request_status, leads.ms_teams_request_status, leads.sip_request_status,
+             users.name AS jrm_name
+      ${baseQuery}
+      ${whereClause}
+      ORDER BY leads.created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
     const [trails] = await db.execute(fetchQuery, queryParams);
 
     if (trails.length === 0) {
@@ -1256,6 +1320,7 @@ exports.getAllLeadsForAdmin = async (req, res) => {
     });
   }
 };
+
 
 
 // UNIVERSAL
