@@ -1852,7 +1852,7 @@ exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
              created_at, code_approved_at
       FROM leads
       ${whereClause}
-      ORDER BY code_approved_at DESC
+      ORDER BY code_approved_at ASC
       LIMIT ${limit} OFFSET ${offset}
     `;
 
