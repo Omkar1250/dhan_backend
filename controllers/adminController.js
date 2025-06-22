@@ -34,7 +34,7 @@ exports.handleUnderUsApproval = async (req, res) => {
 exports.handleCodeApproval = async (req, res) => {
   try {
     const {leadId} = req.params
-    const {  action, batch_code } = req.body;
+    const {  action, batch_code, rm } = req.body;
 
     if (!leadId || !['approve', 'reject'].includes(action)) {
       return res.status(400).json({ success: false, message: 'Invalid parameters.' });
@@ -52,43 +52,51 @@ exports.handleCodeApproval = async (req, res) => {
 
     const lead = leadResult[0];
 
-    if (action === 'approve') {
-      if (!batch_code || batch_code.trim() === "") {
-        return res.status(400).json({ success: false, message: 'Batch Code is required for approval.' });
-      }
+   if (action === 'approve') {
+  if (!batch_code || batch_code.trim() === "") {
+    return res.status(400).json({ success: false, message: 'Batch Code is required for approval.' });
+  }
 
-      // Get conversion points
-      const [pointResult] = await db.execute(
-        'SELECT points FROM conversion_points WHERE action = "code_approved"'
-      );
-      const pointsToCredit = pointResult[0]?.points || 0;
+  if (!rm) {
+    return res.status(400).json({ success: false, message: 'RM ID is required to assign.' });
+  }
 
-      // Credit points to RM wallet
-      await db.execute(
-        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
-        [pointsToCredit, lead.fetched_by]
-      );
+  // Get conversion points
+  const [pointResult] = await db.execute(
+    'SELECT points FROM conversion_points WHERE action = "code_approved"'
+  );
+  const pointsToCredit = pointResult[0]?.points || 0;
 
-      // Log wallet transaction
-      await db.execute(
-        'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
-        [lead.fetched_by, lead.id, 'code_approved', pointsToCredit]
-      );
+  // Credit points to RM wallet
+  await db.execute(
+    'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+    [pointsToCredit, lead.fetched_by]
+  );
 
-      // Update lead status
-      await db.execute(
-        `UPDATE leads 
-         SET 
-           code_request_status = 'approved',
-           code_approved_at = NOW(),
-           batch_code = ?,
-           sip_request_status = 'pending',
-           ms_teams_request_status = 'pending'
-         WHERE id = ?`,
-        [batch_code, leadId]
-      );
+  // Log wallet transaction
+  await db.execute(
+    'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+    [lead.fetched_by, lead.id, 'code_approved', pointsToCredit]
+  );
 
-      return res.status(200).json({ success: true, message: 'Code Request approved, batch code saved, and points credited.' });
+  // ✅ Update lead status and assign RM
+  await db.execute(
+    `UPDATE leads 
+     SET 
+       code_request_status = 'approved',
+       code_approved_at = NOW(),
+       batch_code = ?,
+       sip_request_status = 'pending',
+       ms_teams_request_status = 'pending',
+       advanced_ms_teams_request_status = 'pending',
+       assigned_to = ?  
+     WHERE id = ?`,
+    [batch_code, rm, leadId]
+  );
+   
+
+  return res.status(200).json({ success: true, message: 'Code Request approved, batch code saved, RM assigned, and points credited.' });
+
 
     } else if (action === 'reject') {
       await db.execute(
@@ -210,7 +218,7 @@ exports.handleCodeApproval = async (req, res) => {
 exports.approveAOMARequest = async (req, res) => {
   const leadId = req.params.leadId;
   const { action } = req.body; // 'approve' or 'reject'
-  console.log("Action from AOMA:", action);
+  
 
   if (!['approve', 'reject'].includes(action)) {
     return res.status(400).json({ success: false, message: 'Invalid action provided.' });
@@ -941,13 +949,7 @@ exports.getUsersSIPRequests = async (req, res) => {
   }
 };
 
-
-
-
-
 // controllers/analyticsController.js
-
-
 exports.getAnalyticsSummary = async (req, res) => {
   const { startDate, endDate, jrmId } = req.query;
 
@@ -999,8 +1001,6 @@ exports.getAnalyticsSummary = async (req, res) => {
   }
 };
 
-
-
 exports.getAllJrm = async (req, res) => {
   try {
     const [rows] = await db.execute('SELECT id, name, personal_number, created_at FROM users WHERE role = "rm"');
@@ -1018,10 +1018,6 @@ exports.getAllJrm = async (req, res) => {
     });
   }
 };
-
-
-
-
 
 // Get all conversion points
 exports.getConversionPoints = async (req, res) => {
@@ -1075,8 +1071,6 @@ exports.updateConversionPoints = async (req, res) => {
     res.status(500).json({ error: "Failed to update conversion points" });
   }
 };
-
-
 
 exports.getDeleteRequestsList = async (req, res) => {
   try {
@@ -1820,7 +1814,7 @@ exports.approveLeadAction = async (req, res) => {
 };
 
 
-
+//Admin Basic Ms id pass
 exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
@@ -1884,6 +1878,88 @@ exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
   }
 };
 
+// exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
+//   try {
+//     const page = parseInt(req.query.page, 10) || 1;
+//     const limit = parseInt(req.query.limit, 10) || 10;
+//     const offset = (page - 1) * limit;
+//     const search = req.query.search || "";
+
+//     // Prepare search clause and parameters separately
+//     let leadsSearchClause = "";
+//     let advanceSearchClause = "";
+//     const queryParams = [];
+
+//     if (search) {
+//       leadsSearchClause = ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR LOWER(whatsapp_mobile_number) LIKE ?)`;
+//       advanceSearchClause = ` AND (LOWER(account_opening_name) LIKE ? OR LOWER(mobile_number) LIKE ? OR LOWER(whatsapp_number) LIKE ?)`;
+
+//       const keyword = `%${search.toLowerCase()}%`;
+//       queryParams.push(keyword, keyword, keyword, keyword, keyword, keyword);
+//     }
+
+//     // Count total
+//     const countQuery = `
+//       SELECT COUNT(*) AS total FROM (
+//         SELECT id FROM leads
+//         WHERE code_request_status = 'approved' AND ms_details_sent = 'pending' ${leadsSearchClause}
+//         UNION ALL
+//         SELECT id FROM advance_batch
+//         WHERE old_code_request_status = 'approved' AND old_basic_ms_clients_msdetails = 'pending' ${advanceSearchClause}
+//       ) AS combined
+//     `;
+//     const [countResult] = await db.execute(countQuery, queryParams);
+//     const totalMsLeads = countResult[0]?.total || 0;
+//     const totalPages = Math.ceil(totalMsLeads / limit);
+
+//     // Fetch records
+//     const fetchQuery = `
+//       SELECT id, name, mobile_number, whatsapp_mobile_number, batch_code,
+//              NULL AS batch_type, NULL AS client_code,
+//              created_at, code_approved_at, 'new' AS source
+//       FROM leads
+//       WHERE code_request_status = 'approved' AND ms_details_sent = 'pending' ${leadsSearchClause}
+
+//       UNION ALL
+
+//       SELECT id, account_opening_name AS name, mobile_number, whatsapp_number AS whatsapp_mobile_number,
+//              batch_code, batch_type, client_code,
+//              referred_at AS created_at, old_code_approved_at AS code_approved_at, 'old' AS source
+//       FROM advance_batch
+//       WHERE old_code_request_status = 'approved' AND old_basic_ms_clients_msdetails = 'pending' ${advanceSearchClause}
+
+//       ORDER BY code_approved_at ASC
+//       LIMIT ${limit} OFFSET ${offset}
+//     `;
+//     const [msLeads] = await db.execute(fetchQuery, queryParams);
+
+//     if (msLeads.length === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "No leads found.",
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "MS Teams leads fetched successfully.",
+//       totalMsLeads,
+//       msLeads,
+//       totalPages,
+//       currentPage: page,
+//       perPage: limit,
+//     });
+//   } catch (err) {
+//     console.error("Error fetching MS Teams leads for admin:", err);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal Server Error",
+//       error: err.message,
+//     });
+//   }
+// };
+
+
 
 exports.msTeamsDetailsSent = async( req, res) => {
   try {
@@ -1910,7 +1986,7 @@ exports.msTeamsDetailsSent = async( req, res) => {
     if (action === 'approve') {
         // Update lead status
         await db.execute(
-          'UPDATE leads SET ms_details_sent  = "approved" WHERE id = ?',
+          'UPDATE leads SET ms_details_sent  = "approved", basic_ms_teams_details_send_at = NOW() WHERE id = ?',
           [leadId]
         );
 
@@ -2037,12 +2113,692 @@ exports.deleteLeadFromDeleteRequest = async (req, res) => {
   }
 };
 
+exports.fetchAdvanceMsTeamsLeadsForAdmin = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
+
+    // Build WHERE clause and queryParams array
+    let whereClause = `WHERE code_request_status = 'approved' AND advanced_ms_teams_request_status ='pending'`;
+    const queryParams = [];
+
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR LOWER(whatsapp_mobile_number) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count total matching records
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total FROM leads ${whereClause}`,
+      queryParams
+    );
+    const totalAdvanceMsLeads = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalAdvanceMsLeads / limit);
+
+    // Fetch paginated results
+    const fetchQuery = `
+      SELECT id, name, mobile_number, whatsapp_mobile_number, batch_code,
+             created_at, code_approved_at
+      FROM leads
+      ${whereClause}
+      ORDER BY code_approved_at ASC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+
+    const [advanceMsLeads] = await db.execute(fetchQuery, queryParams);
+
+    if (advanceMsLeads.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No leads found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "MS Teams leads fetched successfully.",
+      totalAdvanceMsLeads,
+      advanceMsLeads,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+  } catch (err) {
+    console.error("Error fetching MS Teams leads for admin:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
+  }
+};
+
+
+
+// RM 
+exports.getRequestedOldLeadForRefer = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
+
+    // Base query setup
+    let baseQuery = `FROM advance_batch`;
+    let whereClause = ` WHERE  old_code_request_status = 'requested'`;
+    
+    const queryParams = [];
+
+    // Add search filters if provided
+    if (search) {
+      whereClause += ` AND (
+        LOWER(account_opening_name) LIKE ? OR 
+        LOWER(mobile_number) LIKE ? OR 
+        CAST(id AS CHAR) LIKE ?
+      )`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count total
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total ${baseQuery} ${whereClause}`,
+      queryParams
+    );
+    const totalAdvanceCodedRequests = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalAdvanceCodedRequests / limit);
+
+    // Fetch paginated results
+    const fetchQuery = `
+      SELECT * ${baseQuery} ${whereClause}
+      ORDER BY referred_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    const [advanceCodedRequests] = await db.execute(fetchQuery, queryParams);
+
+    if (advanceCodedRequests.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No pending Refer Requests found.",
+      });
+    }
+
+    // Success response
+    return res.status(200).json({
+      success: true,
+      message: "Pending Refer Requests fetched successfully.",
+      totalAdvanceCodedRequests,
+      advanceCodedRequests,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+
+  } catch (error) {
+    console.error("Error fetching Refer Requests:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
+
+
+// exports.handleOldLeadApproval = async (req, res) => {
+//   try {
+//     const { leadId } = req.params;
+//     const { action } = req.body;
+//     console.log("LEad id", leadId)
+
+//     if (!leadId || !['approve', 'reject'].includes(action)) {
+//       return res.status(400).json({ success: false, message: 'Invalid parameters.' });
+//     }
+
+//     const [leadResult] = await db.execute(
+//       'SELECT * FROM advance_batch WHERE id = ? AND old_client_refer_status = "referred" AND old_code_request_status="requested"',
+//       [leadId]
+//     );
+
+//     if (leadResult.length === 0) {
+//       return res.status(404).json({ success: false, message: 'Lead not found or not in requested status.' });
+//     }
+
+//     if (action === 'approve') {
+//       await db.execute(
+//         `UPDATE advance_batch 
+//          SET old_client_refer_status = 'approved',
+//              old_code_request_status = 'approved',
+//              old_code_approved_at = NOW(),
+//              referred_approved_at = NOW()
+//          WHERE id = ?`,
+//         [leadId]
+//       );
+
+//       return res.status(200).json({ success: true, message: 'Old Client Reference approved successfully.' });
+
+//     } else if (action === 'reject') {
+//       await db.execute(
+//         `UPDATE advance_batch 
+//          SET old_code_request_status = 'rejected'
+//          WHERE id = ?`,
+//         [leadId]
+//       );
+
+//       return res.status(200).json({ success: true, message: 'Old Client Reference rejected successfully.' });
+//     }
+
+//   } catch (error) {
+//     console.error('Error handling Old Lead Approval:', error);
+//     res.status(500).json({ success: false, message: 'Server error', error: error.message });
+//   }
+// };
+//handle old lead approval
+exports.handleOldLeadApproval = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { action, batch_code } = req.body;
+
+    if (!leadId || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Invalid parameters.' });
+    }
+ 
+    // Validate existence of the lead
+    const [leadResult] = await db.execute(
+      'SELECT * FROM advance_batch WHERE id = ? AND old_code_request_status = "requested"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not in requested status.' });
+    }
+
+    const lead = leadResult[0];
+
+    if (action === 'approve') {
+      if (!batch_code || batch_code.trim() === "") {
+        return res.status(400).json({ success: false, message: 'Batch Code is required for approval.' });
+      }
+
+      await db.execute(
+        `UPDATE advance_batch 
+         SET 
+            old_code_request_status = 'approved',
+            old_code_approved_at = NOW(),
+            batch_code = ?,
+            basic_ms_teams_status = 'pending',
+            advance_ms_teams_status = 'pending',
+            old_basic_ms_clients_msdetails = 'pending',
+            advance_ms_clients_msdetails='pending'
+         WHERE id = ?`,
+        [batch_code, leadId]
+      );
+
+      return res.status(200).json({ success: true, message: 'Code Request approved, batch code saved, RM assigned, and points credited.' });
+
+    } else if (action === 'reject') {
+      await db.execute(
+        `UPDATE advance_batch 
+         SET old_code_request_status = 'rejected'
+         WHERE id = ?`,
+        [leadId]
+      );
+
+      return res.status(200).json({ success: true, message: 'Code Request rejected successfully.' });
+    }
+
+  } catch (error) {
+    console.error('Error handling Code Approval:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
 
 
 
 
+exports.advanceMsTeamsDetailsSent = async( req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { action } = req.body;
+
+    // Validate input parameters
+    if (!leadId || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Invalid parameters. Action must be either "approve" or "reject".' });
+    }
+
+
+    const [leadResult] = await db.execute(
+      'SELECT * FROM leads WHERE id = ? AND code_request_status  = "approved"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not code approved.' });
+    }
+
+    const lead = leadResult[0];
+
+    if (action === 'approve') {
+        // Update lead status
+        await db.execute(
+          'UPDATE leads SET  advance_msteams_details_sent  = "approved", advanced_ms_teams_request_status = "approved", advance_ms_teams_details_send_at  = NOW() WHERE id = ?',
+          [leadId]
+        );
+
+
+        return res.status(200).json({ success: true, message: 'Ms Teams Details sent.' });
+      
+    } else if (action === 'reject') {
+  
+      await db.execute(
+        'UPDATE leads SET  advance_msteams_details_sent = "rejected" WHERE id = ?',
+        [leadId]
+      );
+
+      return res.status(200).json({ success: true, message: 'Not sent' });
+    }
+  } catch (error) {
+    console.error('Error handling Request:', error);
+    res.status(500).json({ success: false, message: 'Server error while sending request.', error: error.message });
+  }
+};
+
+
+//Handle Old Basic Ms Team Id
+exports.oldBasicMsIdPassSent = async( req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { action } = req.body;
+
+    // Validate input parameters
+    if (!leadId || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Invalid parameters. Action must be either "approve" or "reject".' });
+    }
+
+
+    const [leadResult] = await db.execute(
+      'SELECT * FROM advance_batch WHERE id = ? AND old_code_request_status  = "approved"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not code approved.' });
+    }
+
+    const lead = leadResult[0];
+
+    if (action === 'approve') {
+        // Update lead status
+        await db.execute(
+          'UPDATE advance_batch SET  old_basic_ms_clients_msdetails  = "approved", basic_ms_idpass_sent_at  = NOW() WHERE id = ?',
+          [leadId]
+        );
+
+
+        return res.status(200).json({ success: true, message: 'Ms Teams Details sent.' });
+      
+    } else if (action === 'reject') {
+  
+      await db.execute(
+        'UPDATE advance_batch SET  old_basic_ms_clients_msdetails = "rejected" WHERE id = ?',
+        [leadId]
+      );
+
+      return res.status(200).json({ success: true, message: 'Not sent' });
+    }
+  } catch (error) {
+    console.error('Error handling Request:', error);
+    res.status(500).json({ success: false, message: 'Server error while sending request.', error: error.message });
+  }
+};
+
+//Handle Old Advance Ms Details sent
+exports.oldAdvanceMsIdPassSent = async( req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { action } = req.body;
+
+    // Validate input parameters
+    if (!leadId || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Invalid parameters. Action must be either "approve" or "reject".' });
+    }
+
+
+    const [leadResult] = await db.execute(
+      'SELECT * FROM advance_batch WHERE id = ? AND old_code_request_status  = "approved"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not code approved.' });
+    }
+
+    const lead = leadResult[0];
+
+    if (action === 'approve') {
+        // Update lead status
+        await db.execute(
+          'UPDATE advance_batch SET  advance_ms_clients_msdetails  = "approved", advance_ms_idpass_sent_at  = NOW() WHERE id = ?',
+          [leadId]
+        );
+
+
+        return res.status(200).json({ success: true, message: 'Ms Teams Details sent.' });
+      
+    } else if (action === 'reject') {
+  
+      await db.execute(
+        'UPDATE advance_batch SET  advance_ms_clients_msdetails = "rejected" WHERE id = ?',
+        [leadId]
+      );
+
+      return res.status(200).json({ success: true, message: 'Not sent' });
+    }
+  } catch (error) {
+    console.error('Error handling Request:', error);
+    res.status(500).json({ success: false, message: 'Server error while sending request.', error: error.message });
+  }
+};
 
 
 
 
+//Fetch Old Basic Code Apprrove leads For ms Teams
+exports.fetchBasicOldClientLeadsForMsTeams = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
 
+    // Updated WHERE clause to include batch_type = 'basic'
+    let whereClause = `
+      WHERE old_code_request_status = 'approved'
+      AND old_basic_ms_clients_msdetails = 'pending'
+      AND (batch_type = 'basic' OR batch_type = 'both')
+     
+    `;
+    const queryParams = [];
+
+    if (search) {
+      whereClause += `
+        AND (
+          LOWER(account_opening_name) LIKE ?
+          OR LOWER(mobile_number) LIKE ?
+          OR LOWER(whatsapp_number) LIKE ?
+        )
+      `;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count total matching records
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total FROM advance_batch ${whereClause}`,
+      queryParams
+    );
+    const totalOldBasicMsLeads = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalOldBasicMsLeads / limit);
+
+    // Fetch paginated results
+    const fetchQuery = `
+      SELECT id, account_opening_name, mobile_number, whatsapp_number,
+             batch_code, batch_type, old_code_approved_at
+      FROM advance_batch
+      ${whereClause}
+      ORDER BY old_code_approved_at ASC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    const [oldBasicMsLeads] = await db.execute(fetchQuery, queryParams);
+
+    if (oldBasicMsLeads.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No leads found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Basic MS Teams leads fetched successfully.",
+      totalOldBasicMsLeads,
+      oldBasicMsLeads,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+
+  } catch (err) {
+    console.error("Error fetching MS Teams leads for admin:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
+  }
+};
+
+
+//Fetch Old Advance Code Apprrove leads For ms Teams
+exports.fetchAdvanceOldClientLeadsForMsTeams = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
+
+    // Updated WHERE clause to include batch_type = 'basic'
+   let whereClause = `
+  WHERE old_code_request_status = 'approved'
+  AND advance_ms_clients_msdetails = 'pending'
+  AND (batch_type = 'advance' OR batch_type = 'both')
+`;
+
+    const queryParams = [];
+
+    if (search) {
+      whereClause += `
+        AND (
+          LOWER(account_opening_name) LIKE ?
+          OR LOWER(mobile_number) LIKE ?
+          OR LOWER(whatsapp_number) LIKE ?
+        )
+      `;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count total matching records
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total FROM advance_batch ${whereClause}`,
+      queryParams
+    );
+    const totalOldAdvanceMsLeads = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalOldAdvanceMsLeads / limit);
+
+    // Fetch paginated results
+    const fetchQuery = `
+      SELECT id, account_opening_name, mobile_number, whatsapp_number,
+             batch_code, batch_type, old_code_approved_at
+      FROM advance_batch
+      ${whereClause}
+      ORDER BY old_code_approved_at ASC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    const [oldAdvanceMsLeads] = await db.execute(fetchQuery, queryParams);
+
+    if (oldAdvanceMsLeads.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No leads found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Basic MS Teams leads fetched successfully.",
+      totalOldAdvanceMsLeads,
+      oldAdvanceMsLeads,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+
+  } catch (err) {
+    console.error("Error fetching MS Teams leads for admin:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
+  }
+};
+
+
+
+//AdvaneMS Teams Request
+exports.getUsersAdvanceMSTeamsRequests = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
+
+    let baseQuery = `FROM leads`;
+    let whereClause = ` WHERE advanced_ms_teams_request_status = 'requested'`;
+    const queryParams = [];
+
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query
+    const [countResult] = await db.execute(
+      `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
+      queryParams
+    );
+    const totalAdvanceMsTeamsRequests = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalAdvanceMsTeamsRequests / limit);
+
+    // Fetch query
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY ms_teams_login_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [advanceMsTeamsRequests] = await db.execute(fetchQuery, queryParams);
+
+    if (advanceMsTeamsRequests.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No pending MS Teams requests found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Pending MS Teams requests fetched successfully.",
+      totalAdvanceMsTeamsRequests,
+      advanceMsTeamsRequests,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+  } catch (error) {
+    console.error("Error fetching MS Teams requests:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
+
+
+//approve advancems teams request
+exports.approveAdvanceMsTeamsLoginRequest = async (req, res) => {
+  const leadId = req.params.leadId;
+  const { action } = req.body; // 'approve' or 'reject'
+
+  if (!['approve', 'reject'].includes(action)) {
+    return res.status(400).json({ success: false, message: 'Invalid action provided.' });
+  }
+
+  try {
+    // Check if lead exists and is in MS Teams requested state
+    const [leadResult] = await db.execute(
+      'SELECT * FROM leads WHERE id = ? AND advanced_ms_teams_request_status  = "requested"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lead not found or not in MS Teams requested status.',
+      });
+    }
+
+    const lead = leadResult[0];
+
+    if (action === 'approve') {
+      // Get MS Teams Approved point value
+      const [pointResult] = await db.execute(
+        'SELECT points FROM conversion_points WHERE action = "advance_ms_teams_approved"'
+      );
+
+      if (!pointResult.length) {
+        return res.status(500).json({
+          success: false,
+          message: 'Conversion point for MS Teams approval is not configured.',
+        });
+      }
+
+      const pointsToCredit = pointResult[0].points;
+
+      // Credit points to RM's wallet
+      await db.execute(
+        'UPDATE rm SET wallet = wallet + ? WHERE id = ?',
+        [pointsToCredit, lead.assigned_to]
+      );
+
+      // Log wallet transaction
+      await db.execute(
+        'INSERT INTO wallet_transactions (rm_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
+        [lead.assigned_to, lead.id, 'advance_ms_teams_approved', pointsToCredit]
+      );
+
+      // Update lead status to approved
+      await db.execute(
+        'UPDATE leads SET advanced_ms_teams_request_status = "approved", advanced_ms_teams_approved_at = NOW() WHERE id = ?',
+        [leadId]
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'MS Teams Login request approved and points credited.',
+      });
+
+    } else {
+      // Reject case: just update status
+      await db.execute(
+        'UPDATE leads SET advanced_ms_teams_request_status = "rejected" WHERE id = ?',
+        [leadId]
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'MS Teams Login request rejected successfully.',
+      });
+    }
+
+  } catch (error) {
+    console.error('Error processing MS Teams Login request:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while processing MS Teams Login request.',
+    });
+  }
+};

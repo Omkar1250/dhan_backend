@@ -67,59 +67,75 @@ exports.adminPayout = async (req, res) => {
   
 
   //RM PAYEMENT OVERVIEW
- 
-  
-  exports.getPaymentsOverview = async (req, res) => {
-    try {
-      const rmId = req.user.id;
-      const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 5;
-      const offset = (page - 1) * limit;
-  
-      console.log("userId:", rmId, "limit:", limit, "offset:", offset); // Debugging log
-  
-      // Fetch the total number of transactions for this user
-      const [totalResult] = await db.execute(
-        'SELECT COUNT(*) AS total FROM wallet_transactions WHERE user_id = ?',
-        [rmId]
-      );
-      const totalTransactions = totalResult[0].total;
-      const totalPages = Math.ceil(totalTransactions / limit); // Calculate total pages
-  
-      // Fetch the total points for all transactions
-      const [totalPointsResult] = await db.execute(
-        'SELECT SUM(points) AS totalPoints FROM wallet_transactions WHERE user_id = ?',
-        [rmId]
-      );
-      const totalPoints = totalPointsResult[0].totalPoints || 0; // Default to 0 if null
-  
-      // Fetch the paginated transaction history along with the lead name
-      const query = `
-      SELECT wt.*, l.name AS lead_name, l.mobile_number
-      FROM wallet_transactions wt
-      LEFT JOIN leads l ON wt.lead_id = l.id
-      WHERE wt.user_id = ?
-      ORDER BY wt.created_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-    
-  
-      const [transactions] = await db.execute(query, [rmId]);
-  
-      res.status(200).json({
-        success: true,
-        message: "Payments overview fetched successfully.",
-        transactions,
-        totalTransactions,
-        totalPages,
-        currentPage: page,
-        totalPoints, // Include total points in the response
-      });
-    } catch (error) {
-      console.error("Error fetching transactions:", error);
-      res.status(500).json({ success: false, error: error.message });
+exports.getPaymentsOverview = async (req, res) => {
+  try {
+    const rmId = req.user.id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
+
+    // WHERE clause and params
+    let whereClause = `WHERE wt.user_id = ?`;
+    const queryParams = [rmId];
+
+    if (search) {
+      whereClause += `
+        AND (
+          LOWER(wt.action) LIKE ? OR 
+          LOWER(l.name) LIKE ? OR 
+          l.mobile_number LIKE ?
+        )
+      `;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
     }
-  };
+
+    // Count total transactions
+    const [totalResult] = await db.execute(
+      `SELECT COUNT(*) AS total FROM wallet_transactions wt 
+       LEFT JOIN leads l ON wt.lead_id = l.id 
+       ${whereClause}`,
+      queryParams
+    );
+    const totalTransactions = totalResult[0].total;
+    const totalPages = Math.ceil(totalTransactions / limit);
+
+    // Total points
+    const [totalPointsResult] = await db.execute(
+      `SELECT SUM(points) AS totalPoints FROM wallet_transactions WHERE user_id = ?`,
+      [rmId]
+    );
+    const totalPoints = totalPointsResult[0].totalPoints || 0;
+
+    // Fetch paginated transactions with lead details
+    const [transactions] = await db.execute(
+      `SELECT wt.*, l.name AS lead_name, l.mobile_number 
+       FROM wallet_transactions wt 
+       LEFT JOIN leads l ON wt.lead_id = l.id 
+       ${whereClause} 
+       ORDER BY wt.created_at DESC 
+       LIMIT ${limit} OFFSET ${offset}`,
+      [...queryParams]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Payments overview fetched successfully.",
+      transactions,
+      totalTransactions,
+      totalPages,
+      currentPage: page,
+      totalPoints,
+    });
+  } catch (error) {
+    console.error("Error fetching transactions:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
+
 
   // Get all JRMs ordered by wallet points descending
   exports.getAllJRMsByPoints = async (req, res) => {
@@ -169,3 +185,75 @@ exports.adminPayout = async (req, res) => {
      
     }
   };
+
+
+  //get Payment transactions of Rm
+exports.getRmWalletTransactions = async (req, res) => {
+  try {
+    const rmId = req.user.id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || "";
+
+    // WHERE clause and params
+    let whereClause = `WHERE wt.rm_id = ?`;
+    const queryParams = [rmId];
+
+    if (search) {
+      whereClause += `
+        AND (
+          LOWER(wt.action) LIKE ? OR 
+          LOWER(l.name) LIKE ? OR 
+          l.mobile_number LIKE ?
+        )
+      `;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count total transactions
+    const [totalResult] = await db.execute(
+      `SELECT COUNT(*) AS total FROM wallet_transactions wt 
+       LEFT JOIN leads l ON wt.rm_id = l.id 
+       ${whereClause}`,
+      queryParams
+    );
+    const totalTransactions = totalResult[0].total;
+    const totalPages = Math.ceil(totalTransactions / limit);
+
+    // Total points
+    const [totalPointsResult] = await db.execute(
+      `SELECT SUM(points) AS totalPoints FROM wallet_transactions WHERE rm_id = ?`,
+      [rmId]
+    );
+    const totalPoints = totalPointsResult[0].totalPoints || 0;
+
+    // Fetch paginated transactions with lead details
+    const [transactions] = await db.execute(
+      `SELECT wt.*, l.name AS lead_name, l.mobile_number 
+       FROM wallet_transactions wt 
+       LEFT JOIN leads l ON wt.rm_id = l.id 
+       ${whereClause} 
+       ORDER BY wt.created_at DESC 
+       LIMIT ${limit} OFFSET ${offset}`,
+      [...queryParams]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Payments overview fetched successfully.",
+      transactions,
+      totalTransactions,
+      totalPages,
+      currentPage: page,
+      totalPoints,
+    });
+  } catch (error) {
+    console.error("Error fetching transactions:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
+

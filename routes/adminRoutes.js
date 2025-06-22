@@ -49,12 +49,24 @@ router.get("/get-delete-request-list", auth, isAdmin, adminController.getDeleteR
 router.post("/lead/approve/:leadId",auth, isAdmin, adminController.approveLeadAction);
 
 router.get("/get-list-msteams-login", auth, isAdmin, adminController.fetchMsTeamsLeadsForAdmin)
+router.get("/get-adavance-msteams-list", auth, isAdmin, adminController.fetchAdvanceMsTeamsLeadsForAdmin)
 router.post("/ms-teams-details/:leadId", auth, isAdmin, adminController.msTeamsDetailsSent)
 
 router.delete("/admin/delete-lead/:leadId", auth, adminController.adminDeleteLead)
 router.delete("/delete/lead-delete-from-list/:leadId", auth, isAdmin, adminController.deleteLeadFromDeleteRequest)
 
+//rm
+router.get("/get-old-refer-leads", auth, isAdmin, adminController.getRequestedOldLeadForRefer)
+router.post("/approve-old-lead/:leadId", auth, isAdmin, adminController.handleOldLeadApproval)
+router.post("/advance-ms-details_sent/:leadId", auth, isAdmin, adminController.advanceMsTeamsDetailsSent)
 
 
+router.get('/get-eligible-old-basic-ms-leads', auth, isAdmin, adminController.fetchBasicOldClientLeadsForMsTeams)
+router.get('/get-eligible-old-advance-ms-leads', auth, isAdmin, adminController.fetchAdvanceOldClientLeadsForMsTeams)
+router.post('/sent-old-basic-id-pass/:leadId', auth, isAdmin, adminController.oldBasicMsIdPassSent)
+router.post('/sent-old-advance-id-pass/:leadId', auth, isAdmin, adminController.oldAdvanceMsIdPassSent)
+
+router.get('/get-advance-ms-teams-requests', auth, isAdmin, adminController.getUsersAdvanceMSTeamsRequests)
+router.post('/approve-advance-ms-teams-request/:leadId', auth, isAdmin, adminController.approveAdvanceMsTeamsLoginRequest)
 
 module.exports =router  

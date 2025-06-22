@@ -13,9 +13,8 @@ exports.loginUser = async (req, res) => {
 
     let user = null;
     let role = null;
-    let ck_number = null
 
-    // Check in admins table
+    // 1. Check in admins table
     const [adminRows] = await db.execute(
       "SELECT * FROM admins WHERE personal_number = ?",
       [personal_number]
@@ -25,14 +24,13 @@ exports.loginUser = async (req, res) => {
       user = adminRows[0];
       role = "admin";
 
-      // Compare hashed password
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) {
         return res.status(401).json({ success: false, message: "Invalid credentials" });
       }
 
     } else {
-      // Check in users table
+      // 2. Check in users table (RM)
       const [rmRows] = await db.execute(
         "SELECT * FROM users WHERE personal_number = ?",
         [personal_number]
@@ -42,30 +40,44 @@ exports.loginUser = async (req, res) => {
         user = rmRows[0];
         role = "rm";
 
-        // Compare plain text password directly
         if (user.password !== password) {
           return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
+      } else {
+        // 3. Check in RM (main RM) table
+        const [mainRmRows] = await db.execute(
+          "SELECT * FROM rm WHERE personal_number = ?",
+          [personal_number]
+        );
+
+        if (mainRmRows.length > 0) {
+          user = mainRmRows[0];
+          role = "mainRm";
+
+          if (user.password !== password) {
+            return res.status(401).json({ success: false, message: "Invalid credentials" });
+          }
+        }
       }
     }
 
-    // If no user found
+    // 4. Final check
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Attach role to user object
+    // Add role
     user.role = role;
 
+    // Generate JWT token
     const token = generateToken(user);
-    console.log("token from login handler", token)
 
-    const options ={
-      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      httpOnly:true
-    }
-   console.log(options)
+    const options = {
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      httpOnly: true,
+    };
+
     res.cookie("token", token, options).status(200).json({
       success: true,
       message: "Login successful",
@@ -76,12 +88,11 @@ exports.loginUser = async (req, res) => {
         ck_number: user.ck_number,
         user_id: user.userid,
         personal_number: user.personal_number,
-        aoma_stars:user.aoma_stars,
-        activation_stars:user.activation_stars,
+        aoma_stars: user.aoma_stars,
+        activation_stars: user.activation_stars,
         role,
       },
     });
-
   } catch (error) {
     console.error("Login error:", error);
     res.status(500).json({ success: false, message: "Login failed" });
@@ -216,7 +227,7 @@ exports.createRm = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Relationship Manager created successfully',
+      message: 'Jr.Relationship Manager created successfully',
       userId: result.insertId
     });
 
@@ -410,3 +421,141 @@ exports.getSingleRm = async (req, res) => {
   }
 };
 
+
+exports.createMainRM = async(req, res) => {
+    try {
+    const { name, personal_number, ck_number, userid, password, upi_id } = req.body;
+
+    // Validate required fields
+    if (!name || !personal_number || !ck_number || !userid || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required"
+      });
+    }
+
+    // Check if personal_number or userid already exists
+    const [existing] = await db.execute(
+      'SELECT * FROM rm WHERE personal_number = ? OR userid = ?',
+      [personal_number, userid]
+    );
+
+    if (existing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'An RM with this personal number or userid already exists.'
+      });
+    }
+
+    // Insert new RM
+    const sql = `INSERT INTO rm (name, personal_number, ck_number, userid, password, upi_id, role) 
+                 VALUES (?, ?, ?, ?, ?, ?, 'mainRm')`;
+
+    const [result] = await db.execute(sql, [
+      name,
+      personal_number,
+      ck_number,
+      userid,
+      password,   // <-- storing plain text password (not recommended for production)
+      upi_id
+    ]);
+
+    res.status(201).json({
+      success: true,
+      message: 'Relationship Manager created successfully',
+      userId: result.insertId
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+
+// main rm update 
+exports.mainRmUpdate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, personal_number, ck_number, userid, password, upi_id } = req.body;
+
+    // Check if RM exists
+    const [existing] = await db.execute('SELECT * FROM rm WHERE id = ? AND role = "mainRm"', [id]);
+
+    if (existing.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'RM not found.'
+      });
+    }
+
+    // Update query
+    const sql = `UPDATE rm 
+                 SET name = ?, personal_number = ?, ck_number = ?, userid = ?, password = ?, upi_id = ? 
+                 WHERE id = ?`;
+
+    await db.execute(sql, [name, personal_number, ck_number, userid, password, upi_id, id]);
+
+    res.status(200).json({
+      success: true,
+      message: 'RM details updated successfully.'
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+
+
+exports.mainRmDelete = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if RM exists
+    const [existing] = await db.execute('SELECT * FROM rm WHERE id = ? AND role = "rm"', [id]);
+
+    if (existing.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'RM not found.'
+      });
+    }
+
+    // Delete query
+    await db.execute('DELETE FROM rm WHERE id = ?', [id]);
+
+    res.status(200).json({
+      success: true,
+      message: 'RM deleted successfully.'
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+
+
+exports.getAllMainRm = async (req, res) => {
+  try {
+    const [rows] = await db.execute('SELECT id, name, personal_number, ck_number, userid, upi_id, password, created_at FROM rm WHERE role = "mainRm"');
+
+    res.status(200).json({
+      success: true,
+      totalRms: rows.length,
+      rms: rows
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};

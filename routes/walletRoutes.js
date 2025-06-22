@@ -20,4 +20,7 @@ router.get('/rm-payment-list', auth, isAdmin, walletController.getAllJRMsByPoint
 router.get('/total-points/:rmId', auth, isAdmin, walletController.totalPoints)
 
 
+router.get('/rm-points-history', auth, walletController.getRmWalletTransactions)
+
+
 module.exports = router;

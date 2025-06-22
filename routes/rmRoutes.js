@@ -79,4 +79,49 @@ router.post('/request-sip/:leadId', auth, isRm, leadController.requestSipInteres
 router.get('/get-rm-clients',auth,isAdmin, rmController.getYourClientList)
   
 
+
+
+// MAIN RM 
+router.post('/mainrm/signup', upload.none(),auth, isAdmin, adminController.createMainRM);
+
+router.get('/get/all-mainrms', auth, isAdmin, adminController.getAllMainRm);  // Protect with admin check
+ // Protect with admin check
+router.delete('/delete/mainrm/:id', auth, isAdmin, adminController.mainRmDelete);  // Protect with admin check
+
+router.put('/update/mainrm/:id', upload.none(), auth, isAdmin , adminController.mainRmUpdate)
+
+
+router.post('/refer-old-rm', auth,  leadController.referOldLead)
+
+
+
+router.post('/check-old-mobile-number', auth, leadController.checkOldMobileNumber)
+router.get("/refer-old-lead-list", auth , leadController.referOldLeadList)
+
+//Requet for oldClient code approval
+router.post("/request-old-client-code-approval", auth, leadController.requestOldCodeApproval)
+router.get("/get-basic-batch-client-list", auth, leadController.oldBasicMsTeamsClientsList)
+router.get("/get-advance-batch-client-list", auth, leadController.oldAdvaceBatchMsTeamsClientsList)
+router.get("/get-all-batch-client-list", auth, leadController.oldBatchMsTeamsAllClientsList)
+router.get("/new-clients-for-ms-call", auth, leadController.NewMsClientsForCallList)
+router.post("/basic-old-batch-call-done/:leadId", auth, leadController.basicBAtchCallDone)
+router.post("/advance-old-batch-call-done/:leadId", auth, leadController.advanceBatchCallDone)
+router.post("/new-client-call-done/:leadId", auth, leadController.NewClientCallDone)
+router.get("/rm-basic-ms-teams-leads", auth, leadController.jrmBasicMsTeamsClients)
+router.get("/rm-advance-ms-teams-leads", auth, leadController.rmAdvanceMsTeamsClients)
+router.get("/rm-all-my-clients", auth, leadController.jrmLeadsAllMyClients)
+router.get("/get-all-leads-for-rm", auth, leadController.getAllLeadsForRM)
+router.post("/new-basic-lead-batch-call-done/:leadId", auth, leadController.newClientBasicMsCallDone)
+router.post("/new-advance-lead-batch-call-done/:leadId", auth, leadController.newClientAdvanceMsCallDone)
+router.get("/get-leads-for-ms-advance-approval", auth, leadController.rmLeadsForMsTeamSsapprovl)
+router.post("/request-advance-ms-teams-approval/:leadId", auth, upload.single('screenshot'), leadController.requestAdvanceBatchMsTeamsLogin)
+
+//JRM ALL CLIENTS DUMP ROUTE
+router.get("/get-jrm-coded-list", auth, leadController.jrmCodedAllMyClients)
+
+
+
+
+
+
 module.exports = router;
