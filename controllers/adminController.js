@@ -1620,6 +1620,7 @@ exports.approveLeadAction = async (req, res) => {
   const { leadId } = req.params;
   const { action } = req.body;
   const {batch_code} = req.body;
+  const {rmId} =req.body;
 
   const validActions = {
     under_us: { column: "under_us_status", date: "under_us_approved_at" },
@@ -1698,8 +1699,8 @@ exports.approveLeadAction = async (req, res) => {
       );
 
       await db.execute(
-        `UPDATE leads SET code_request_status = 'approved', code_approved_at = NOW(), batch_code = ?, sip_request_status = 'pending', ms_teams_request_status = 'pending' WHERE id = ?`,
-        [batch_code, leadId]
+        `UPDATE leads SET code_request_status = 'approved', code_approved_at = NOW(), batch_code = ?,assigned_to = ?, sip_request_status = 'pending', ms_teams_request_status = 'pending' WHERE id = ?`,
+        [batch_code,rmId, leadId]
       );
 
       return res.status(200).json({ success: true, message: 'Code request approved, points credited.' });
