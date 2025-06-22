@@ -88,7 +88,7 @@ exports.handleCodeApproval = async (req, res) => {
        batch_code = ?,
        sip_request_status = 'pending',
        ms_teams_request_status = 'pending',
-       advanced_ms_teams_request_status = 'pending',
+       advance_msteams_details_sent = 'pending',
        assigned_to = ?  
      WHERE id = ?`,
     [batch_code, rm, leadId]
@@ -1699,7 +1699,7 @@ exports.approveLeadAction = async (req, res) => {
       );
 
       await db.execute(
-        `UPDATE leads SET code_request_status = 'approved', code_approved_at = NOW(), batch_code = ?,assigned_to = ?, sip_request_status = 'pending', ms_teams_request_status = 'pending' WHERE id = ?`,
+        `UPDATE leads SET code_request_status = 'approved', code_approved_at = NOW(), batch_code = ?,assigned_to = ?, sip_request_status = 'pending', ms_teams_request_status = 'pending', advance_msteams_details_sent='pending' WHERE id = ?`,
         [batch_code,rmId, leadId]
       );
 
@@ -2122,7 +2122,7 @@ exports.fetchAdvanceMsTeamsLeadsForAdmin = async (req, res) => {
     const search = req.query.search || "";
 
     // Build WHERE clause and queryParams array
-    let whereClause = `WHERE code_request_status = 'approved' AND advanced_ms_teams_request_status ='pending'`;
+    let whereClause = `WHERE code_request_status = 'approved' AND advance_msteams_details_sent ='pending'`;
     const queryParams = [];
 
     if (search) {
@@ -2386,7 +2386,7 @@ exports.advanceMsTeamsDetailsSent = async( req, res) => {
     if (action === 'approve') {
         // Update lead status
         await db.execute(
-          'UPDATE leads SET  advance_msteams_details_sent  = "approved", advanced_ms_teams_request_status = "approved", advance_ms_teams_details_send_at  = NOW() WHERE id = ?',
+          'UPDATE leads SET  advance_msteams_details_sent  = "approved",  advance_ms_teams_details_send_at  = NOW() WHERE id = ?',
           [leadId]
         );
 

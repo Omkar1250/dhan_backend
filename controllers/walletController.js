@@ -187,7 +187,6 @@ exports.getPaymentsOverview = async (req, res) => {
   };
 
 
-  //get Payment transactions of Rm
 exports.getRmWalletTransactions = async (req, res) => {
   try {
     const rmId = req.user.id;
@@ -215,7 +214,7 @@ exports.getRmWalletTransactions = async (req, res) => {
     // Count total transactions
     const [totalResult] = await db.execute(
       `SELECT COUNT(*) AS total FROM wallet_transactions wt 
-       LEFT JOIN leads l ON wt.rm_id = l.id 
+       LEFT JOIN leads l ON wt.lead_id = l.id 
        ${whereClause}`,
       queryParams
     );
@@ -233,11 +232,11 @@ exports.getRmWalletTransactions = async (req, res) => {
     const [transactions] = await db.execute(
       `SELECT wt.*, l.name AS lead_name, l.mobile_number 
        FROM wallet_transactions wt 
-       LEFT JOIN leads l ON wt.rm_id = l.id 
+       LEFT JOIN leads l ON wt.lead_id = l.id 
        ${whereClause} 
        ORDER BY wt.created_at DESC 
        LIMIT ${limit} OFFSET ${offset}`,
-      [...queryParams]
+      queryParams
     );
 
     res.status(200).json({

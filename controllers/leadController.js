@@ -2063,7 +2063,7 @@ exports.newClientAdvanceMsCallDone= async (req, res) =>{
     // Perform the update based on action
     if (action === 'approve') {
       await db.execute(
-  'UPDATE leads SET jrm_lead_advance_call_connect = "yes", advanced_ms_teams_request_status = "pending" WHERE id = ?',
+  'UPDATE leads SET jrm_lead_advance_call_connect = "yes" WHERE id = ?',
   [leadId]
 );
 
