@@ -38,7 +38,7 @@ exports.loginUser = async (req, res) => {
 
       if (rmRows.length > 0) {
         user = rmRows[0];
-        role = "rm";
+        role = user.role;
 
         if (user.password !== password) {
           return res.status(401).json({ success: false, message: "Invalid credentials" });
@@ -53,7 +53,7 @@ exports.loginUser = async (req, res) => {
 
         if (mainRmRows.length > 0) {
           user = mainRmRows[0];
-          role = "mainRm";
+          role = user.role;
 
           if (user.password !== password) {
             return res.status(401).json({ success: false, message: "Invalid credentials" });

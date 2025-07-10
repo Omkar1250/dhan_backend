@@ -41,7 +41,7 @@ exports.auth = (req, res, next) => {
 
 // Allow only admins
 exports.isAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') {
+   if (req.user.role !== 'admin'&& req.user.role !== 'manager' && req.user.role !== 'teamsUser') {
     return res.status(403).json({
       success: false,
       message: "Access denied: Admins only"
