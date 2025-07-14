@@ -809,7 +809,7 @@ exports.fetchCodeApprovedLeads = async (req, res) => {
       WHERE fetched_by = ? 
       AND code_request_status = 'approved' 
       AND (aoma_request_status IS NULL OR aoma_request_status != 'approved')
-      AND code_approved_at >= NOW() - INTERVAL 14 DAY
+      AND code_approved_at >= NOW() - INTERVAL 30 DAY
     `;
     const queryParams = [rmId];
 
@@ -883,7 +883,7 @@ exports.fetchAOMAApprovedLeads = async (req, res) => {
       WHERE fetched_by = ? 
       AND aoma_request_status = 'approved' 
       AND (activation_request_status IS NULL OR activation_request_status != 'approved')
-      AND code_approved_at >= NOW() - INTERVAL 14 DAY
+      AND code_approved_at >= NOW() - INTERVAL 30 DAY
     `;
     const queryParams = [rmId];
 
