@@ -1032,7 +1032,7 @@ exports.fetchMsTeamsApprovedLeads = async (req, res) => {
     AND ms_details_sent = 'approved'
 
      AND (ms_teams_request_status IS NULL OR ms_teams_request_status != 'approved')
-      AND code_approved_at >= NOW() - INTERVAL 14 DAY`;
+      AND basic_ms_teams_details_send_at >= NOW() - INTERVAL 14 DAY`;
 
     const queryParams = [rmId];
 
@@ -2423,3 +2423,117 @@ exports.jrmCodedAllMyClients = async (req, res) => {
 };
 
 
+
+
+//MF clients 
+exports.mfClients = async (req, res) => {
+  try {
+    const rmId = req.user.id;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || ""; // Search query for filtering leads
+
+    // Base query components
+    const baseQuery = `FROM leads`;
+      let whereClause = `
+        WHERE assigned_to = ? 
+        AND code_request_status = 'approved' 
+        AND mf_call_status IS NULL
+      `;
+
+      const queryParams = [rmId];
+
+
+    // Add search conditions if a search query is provided
+    if (search) {
+      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      const keyword = `%${search.toLowerCase()}%`;
+      queryParams.push(keyword, keyword, keyword);
+    }
+
+    // Count query to get total MS Teams or SIP approved leads
+    const [totalResult] = await db.execute(
+      `SELECT COUNT(*) as total ${baseQuery}${whereClause}`,
+      queryParams
+    );
+    const totalMfClients = totalResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalMfClients / limit);
+
+    // Fetch query to get paginated MS Teams or SIP approved leads
+    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY code_approved_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [mfClients] = await db.execute(fetchQuery, queryParams);
+
+    // If no approved leads are found, return a 404 response
+    if (mfClients.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No MF approved leads found for this RM.",
+      });
+    }
+
+    // Return a successful response with approved leads data
+    return res.status(200).json({
+      success: true,
+      message: "Basic MF leads fetched successfully.",
+      mfClients,
+      totalMfClients,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+  } catch (error) {
+    console.error("Error fetching Basic MF  leads:", error);
+    // Handle unexpected errors and return a 500 response
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
+
+//mf Call done
+exports.mFCallDone = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { action } = req.body;
+
+    // Validate input parameters
+    if (!leadId || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Invalid parameters' });
+    }
+
+    // Check if lead exists and is code approved
+    const [leadResult] = await db.execute(
+      'SELECT * FROM leads WHERE id = ? AND code_request_status = "approved"',
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Lead not found or not code approved.' });
+    }
+
+    // Perform the update based on action
+    if (action === 'approve') {
+      await db.execute(
+  'UPDATE leads SET mf_call_status = "yes", mf_call_completed_at = NOW() WHERE id = ?',
+  [leadId]
+);
+
+      return res.status(200).json({ success: true, message: 'Call marked as done' });
+
+    } else if (action === 'reject') {
+      await db.execute(
+        'UPDATE leads SET mf_call_status = "no" WHERE id = ?',
+        [leadId]
+      );
+      return res.status(200).json({ success: true, message: 'Marked as not connected' });
+    }
+
+  } catch (error) {
+    console.error('Error handling Request:', error);
+    res.status(500).json({ success: false, message: 'Server error while processing request.', error: error.message });
+  }
+};

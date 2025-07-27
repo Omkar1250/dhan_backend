@@ -119,6 +119,10 @@ router.post("/request-advance-ms-teams-approval/:leadId", auth, upload.single('s
 //JRM ALL CLIENTS DUMP ROUTE
 router.get("/get-jrm-coded-list", auth, leadController.jrmCodedAllMyClients)
 
+//Mf clients
+router.get('/get-all-mf-clients', auth, leadController.mfClients)
+router.post('/mark-mf-call-done/:leadId', auth, leadController.mFCallDone)
+
 
 
 
