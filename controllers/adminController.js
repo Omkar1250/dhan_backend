@@ -1,4 +1,4 @@
-const db = require('../config/db');
+const { myapp, dhanDB } = require("../config/db");
 
 
 exports.handleUnderUsApproval = async (req, res) => {
@@ -10,14 +10,14 @@ exports.handleUnderUsApproval = async (req, res) => {
       }
   
       if (action === 'approve') {
-        await db.execute(
+        await dhanDB.execute(
           `UPDATE leads SET under_us_status = 'approved', under_us_approved_at = NOW() WHERE id = ?`,
           [leadId]
         );
         return res.status(200).json({ success: true, message: 'Lead approved successfully.' });
   
       } else if (action === 'reject') {
-        await db.execute(
+        await dhanDB.execute(
           `UPDATE leads SET under_us_status = 'rejected', under_us_approved_at = NOW() WHERE id = ?`,
           [leadId]
         );
@@ -41,7 +41,7 @@ exports.handleCodeApproval = async (req, res) => {
     }
 
     // Validate existence of the lead
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM leads WHERE id = ? AND code_request_status = "requested"',
       [leadId]
     );
@@ -62,25 +62,25 @@ exports.handleCodeApproval = async (req, res) => {
   }
 
   // Get conversion points
-  const [pointResult] = await db.execute(
-    'SELECT points FROM conversion_points WHERE action = "code_approved"'
+  const [pointResult] = await myapp.execute(
+    'SELECT points FROM conversion_points WHERE action = "dhan_code_approved"'
   );
   const pointsToCredit = pointResult[0]?.points || 0;
 
   // Credit points to RM wallet
-  await db.execute(
+  await myapp.execute(
     'UPDATE users SET wallet = wallet + ? WHERE id = ?',
     [pointsToCredit, lead.fetched_by]
   );
 
   // Log wallet transaction
-  await db.execute(
-    'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
-    [lead.fetched_by, lead.id, 'code_approved', pointsToCredit]
+  await myapp.execute(
+    'INSERT INTO wallet_transactions (user_id, lead_id, action,lead_source, points) VALUES (?, ?, ?, ?,?)',
+    [lead.fetched_by, lead.id, 'dhan_code_approved','dhanDB', pointsToCredit]
   );
 
   // ✅ Update lead status and assign RM
-  await db.execute(
+  await dhanDB.execute(
     `UPDATE leads 
      SET 
        code_request_status = 'approved',
@@ -99,7 +99,7 @@ exports.handleCodeApproval = async (req, res) => {
 
 
     } else if (action === 'reject') {
-      await db.execute(
+      await dhanDB.execute(
         `UPDATE leads 
          SET code_request_status = 'rejected'
          WHERE id = ?`,
@@ -226,7 +226,7 @@ exports.approveAOMARequest = async (req, res) => {
 
   try {
     // Check if lead exists and is in requested state
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM leads WHERE id = ? AND aoma_request_status = "requested"',
       [leadId]
     );
@@ -242,30 +242,30 @@ exports.approveAOMARequest = async (req, res) => {
 
     if (action === 'approve') {
       // ✅ Credit Wallet
-      const [pointResult] = await db.execute(
+      const [pointResult] = await dhanDB.execute(
         'SELECT points FROM conversion_points WHERE action = "aoma_approved"'
       );
 
       const pointsToCredit = pointResult[0]?.points || 0;
 
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE users SET wallet = wallet + ? WHERE id = ?',
         [pointsToCredit, lead.fetched_by]
       );
 
-      await db.execute(
+      await dhanDB.execute(
         'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
         [lead.fetched_by, lead.id, 'aoma_approved', pointsToCredit]
       );
 
       // ✅ Update lead status
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET aoma_request_status = "approved", aoma_approved_at = NOW() WHERE id = ?',
         [leadId]
       );
 
       // ✅ Check and update AOMA star
-      const [[{ count }]] = await db.execute(
+      const [[{ count }]] = await dhanDB.execute(
         `SELECT COUNT(*) as count FROM leads 
          WHERE fetched_by = ? 
            AND aoma_request_status = 'approved' 
@@ -273,14 +273,14 @@ exports.approveAOMARequest = async (req, res) => {
         [lead.fetched_by]
       );
 
-      const [[{ setting_value: threshold }]] = await db.execute(
+      const [[{ setting_value: threshold }]] = await dhanDB.execute(
         `SELECT setting_value FROM config WHERE setting_key = 'aoma_star_threshold'`
       );
 
       const numericThreshold = parseInt(threshold);
 
       if (numericThreshold && count % numericThreshold === 0) {
-        await db.execute(
+        await dhanDB.execute(
           `UPDATE users SET aoma_stars = aoma_stars + 1 WHERE id = ?`,
           [lead.fetched_by]
         );
@@ -293,7 +293,7 @@ exports.approveAOMARequest = async (req, res) => {
 
     } else {
       // Reject case
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET aoma_request_status = "rejected" WHERE id = ?',
         [leadId]
       );
@@ -334,7 +334,7 @@ exports.approveActivationRequest = async (req, res) => {
 
   try {
     // Check if lead exists and is in requested state
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM leads WHERE id = ? AND activation_request_status = "requested"',
       [leadId]
     );
@@ -350,7 +350,7 @@ exports.approveActivationRequest = async (req, res) => {
 
     if (action === 'approve') {
       // Get Activation Approved point value
-      const [pointResult] = await db.execute(
+      const [pointResult] = await dhanDB.execute(
         'SELECT points FROM conversion_points WHERE action = "activation_approved"'
       );
 
@@ -364,44 +364,44 @@ exports.approveActivationRequest = async (req, res) => {
       const pointsToCredit = pointResult[0].points;
 
       // Credit points to RM's wallet
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE users SET wallet = wallet + ? WHERE id = ?',
         [pointsToCredit, lead.fetched_by]
       );
 
       // Log transaction
-      await db.execute(
+      await dhanDB.execute(
         'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
         [lead.fetched_by, lead.id, 'activation_approved', pointsToCredit]
       );
 
       // Update lead status to approved
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET activation_request_status = "approved", activation_approved_at = NOW() WHERE id = ?',
         [leadId]
       );
 
       // ✅ Check and update Activation star
-      const [[{ count }]] = await db.execute(
+      const [[{ count }]] = await dhanDB.execute(
         `SELECT COUNT(*) as count FROM leads WHERE fetched_by = ? AND activation_request_status = 'approved'`,
         [lead.fetched_by]
       );
 
-      const [[{ setting_value: thresholdStr }]] = await db.execute(
+      const [[{ setting_value: thresholdStr }]] = await dhanDB.execute(
         `SELECT setting_value FROM config WHERE setting_key = 'activation_star_threshold'`
       );
 
       const threshold = parseInt(thresholdStr, 10);
 
       if (threshold && !isNaN(threshold) && threshold > 0 && count % threshold === 0) {
-        await db.execute(
+        await dhanDB.execute(
           `UPDATE users SET activation_stars = activation_stars + 1 WHERE id = ?`,
           [lead.fetched_by]
         );
       }
 
       // Optionally return updated wallet and star count
-      const [[user]] = await db.execute(
+      const [[user]] = await dhanDB.execute(
         'SELECT wallet, activation_stars FROM users WHERE id = ?',
         [lead.fetched_by]
       );
@@ -415,7 +415,7 @@ exports.approveActivationRequest = async (req, res) => {
 
     } else {
       // Reject case
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET activation_request_status = "rejected" WHERE id = ?',
         [leadId]
       );
@@ -448,7 +448,7 @@ exports.approveMsTeamsLoginRequest = async (req, res) => {
 
   try {
     // Check if lead exists and is in MS Teams requested state
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM leads WHERE id = ? AND ms_teams_request_status = "requested"',
       [leadId]
     );
@@ -464,8 +464,8 @@ exports.approveMsTeamsLoginRequest = async (req, res) => {
 
     if (action === 'approve') {
       // Get MS Teams Approved point value
-      const [pointResult] = await db.execute(
-        'SELECT points FROM conversion_points WHERE action = "ms_teams_approved"'
+      const [pointResult] = await myapp.execute(
+        'SELECT points FROM conversion_points WHERE action = "dhan_ms_teams_approved"'
       );
 
       if (!pointResult.length) {
@@ -478,19 +478,19 @@ exports.approveMsTeamsLoginRequest = async (req, res) => {
       const pointsToCredit = pointResult[0].points;
 
       // Credit points to RM's wallet
-      await db.execute(
+      await myapp.execute(
         'UPDATE users SET wallet = wallet + ? WHERE id = ?',
         [pointsToCredit, lead.fetched_by]
       );
 
       // Log wallet transaction
-      await db.execute(
+      await myapp.execute(
         'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
-        [lead.fetched_by, lead.id, 'ms_teams_login_approved', pointsToCredit]
+        [lead.fetched_by, lead.id, 'dhan_ms_teams_login_approved', pointsToCredit]
       );
 
       // Update lead status to approved
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET ms_teams_request_status = "approved", ms_teams_approved_at = NOW() WHERE id = ?',
         [leadId]
       );
@@ -502,7 +502,7 @@ exports.approveMsTeamsLoginRequest = async (req, res) => {
 
     } else {
       // Reject case: just update status
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET ms_teams_request_status = "rejected" WHERE id = ?',
         [leadId]
       );
@@ -536,7 +536,7 @@ exports.approveSipRequest = async (req, res) => {
     }
 
     // Fetch lead and validate its SIP request status
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM leads WHERE id = ? AND sip_request_status = "requested"',
       [leadId]
     );
@@ -549,7 +549,7 @@ exports.approveSipRequest = async (req, res) => {
 
     if (action === 'approve') {
       // Handle SIP approval
-      const [pointResult] = await db.execute(
+      const [pointResult] = await dhanDB.execute(
         'SELECT points FROM conversion_points WHERE action = "sip_approved"'
       );
 
@@ -558,19 +558,19 @@ exports.approveSipRequest = async (req, res) => {
     
       
         // Credit points to RM wallet
-        await db.execute(
+        await dhanDB.execute(
           'UPDATE users SET wallet = wallet + ? WHERE id = ?',
           [pointsToCredit, lead.fetched_by]
         );
 
         // Log wallet transaction
-        await db.execute(
+        await dhanDB.execute(
           'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
           [lead.fetched_by, lead.id, 'sip_approved', pointsToCredit]
         );
 
         // Update lead status
-        await db.execute(
+        await dhanDB.execute(
           'UPDATE leads SET sip_request_status = "approved" WHERE id = ?',
           [leadId]
         );
@@ -580,7 +580,7 @@ exports.approveSipRequest = async (req, res) => {
       
     } else if (action === 'reject') {
       // Handle SIP rejection
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET sip_request_status = "rejected" WHERE id = ?',
         [leadId]
       );
@@ -614,7 +614,7 @@ exports.getUsersUnderUsRequests = async (req, res) => {
     }
 
     // Get total count
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
@@ -623,7 +623,7 @@ exports.getUsersUnderUsRequests = async (req, res) => {
 
     // Get paginated data
     const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY under_us_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
-    const [underUsRequests] = await db.execute(fetchQuery, queryParams);
+    const [underUsRequests] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (underUsRequests.length === 0) {
       return res.status(404).json({
@@ -674,7 +674,7 @@ exports.getUsersCodeRequests = async (req, res) => {
     }
 
     // Count query
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
@@ -683,7 +683,7 @@ exports.getUsersCodeRequests = async (req, res) => {
 
     // Fetch query
     const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY code_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
-    const [codedRequests] = await db.execute(fetchQuery, queryParams);
+    const [codedRequests] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (codedRequests.length === 0) {
       return res.status(404).json({
@@ -731,7 +731,7 @@ exports.getUsersAomaRequests = async (req, res) => {
     }
 
     // Count query
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
@@ -740,7 +740,7 @@ exports.getUsersAomaRequests = async (req, res) => {
 
     // Fetch query
     const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY aoma_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
-    const [aomaRequests] = await db.execute(fetchQuery, queryParams);
+    const [aomaRequests] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (aomaRequests.length === 0) {
       return res.status(404).json({
@@ -788,7 +788,7 @@ exports.getUsersActivationRequests = async (req, res) => {
     }
 
     // Count query
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
@@ -797,7 +797,7 @@ exports.getUsersActivationRequests = async (req, res) => {
 
     // Fetch query
     const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY activation_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
-    const [activationRequests] = await db.execute(fetchQuery, queryParams);
+    const [activationRequests] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (activationRequests.length === 0) {
       return res.status(404).json({
@@ -846,7 +846,7 @@ exports.getUsersMSTeamsRequests = async (req, res) => {
     }
 
     // Count query
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
@@ -855,7 +855,7 @@ exports.getUsersMSTeamsRequests = async (req, res) => {
 
     // Fetch query
     const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY ms_teams_login_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
-    const [msTeamsRequests] = await db.execute(fetchQuery, queryParams);
+    const [msTeamsRequests] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (msTeamsRequests.length === 0) {
       return res.status(404).json({
@@ -901,7 +901,7 @@ exports.getUsersSIPRequests = async (req, res) => {
     }
 
     // Get total count (no limit/offset here)
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total 
        FROM leads 
        WHERE ${whereClause}`,
@@ -914,7 +914,7 @@ exports.getUsersSIPRequests = async (req, res) => {
     const fetchParams = [...searchParams, limit, offset];
 
     // Get paginated results
-    const [sipRequests] = await db.execute(
+    const [sipRequests] = await dhanDB.execute(
       `SELECT * 
        FROM leads 
        WHERE ${whereClause} 
@@ -987,7 +987,7 @@ exports.getAnalyticsSummary = async (req, res) => {
     // Execute each query independently with cloned parameters
     for (const key in queries) {
       const query = queries[key];
-      const [rows] = await db.execute(query, [...values]);
+      const [rows] = await dhanDB.execute(query, [...values]);
       results[key] = rows[0].count;
     }
 
@@ -1003,7 +1003,7 @@ exports.getAnalyticsSummary = async (req, res) => {
 
 exports.getAllJrm = async (req, res) => {
   try {
-    const [rows] = await db.execute('SELECT id, name, personal_number, created_at FROM users WHERE role = "rm"');
+    const [rows] = await myapp.execute('SELECT id, name, personal_number, created_at FROM users WHERE role = "rm"');
 
     res.status(200).json({
       success: true,
@@ -1022,7 +1022,7 @@ exports.getAllJrm = async (req, res) => {
 // Get all conversion points
 exports.getConversionPoints = async (req, res) => {
   try {
-    const [rows] = await db.query("SELECT action, points FROM conversion_points");
+    const [rows] = await myapp.query("SELECT action, points FROM conversion_points");
     const result = {};
     rows.forEach(({ action, points }) => {
       result[action] = points;
@@ -1047,18 +1047,18 @@ exports.updateConversionPoints = async (req, res) => {
 
   try {
     // Start a database transaction
-    await db.query("START TRANSACTION");
+    await myapp.query("START TRANSACTION");
 
     const actions = Object.entries(updates);
     for (const [action, points] of actions) {
       if (typeof points !== "number" || points < 0) {
         throw new Error(`Invalid points value for action: ${action}`);
       }
-      await db.query("UPDATE conversion_points SET points = ? WHERE action = ?", [points, action]);
+      await myapp.query("UPDATE conversion_points SET points = ? WHERE action = ?", [points, action]);
     }
 
     // Commit the transaction
-    await db.query("COMMIT");
+    await myapp.query("COMMIT");
 
     res.status(200).json({
       success: true,
@@ -1066,7 +1066,7 @@ exports.updateConversionPoints = async (req, res) => {
     });
   } catch (error) {
     // Rollback the transaction in case of error
-    await db.query("ROLLBACK");
+    await myapp.query("ROLLBACK");
     console.error("Error updating conversion points:", error);
     res.status(500).json({ error: "Failed to update conversion points" });
   }
@@ -1093,7 +1093,7 @@ exports.getDeleteRequestsList = async (req, res) => {
 
    
     // Count query to get total matching results
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
@@ -1106,7 +1106,7 @@ exports.getDeleteRequestsList = async (req, res) => {
     const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY deleted_at DESC LIMIT ${limit} OFFSET ${offset}`;
  
 
-    const [deleteRequests] = await db.execute(fetchQuery, queryParams);
+    const [deleteRequests] = await dhanDB.execute(fetchQuery, queryParams);
 
     
     // Return the response
@@ -1269,7 +1269,7 @@ exports.getAllLeadsForAdmin = async (req, res) => {
     }
 
     // Count query
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
@@ -1287,7 +1287,7 @@ exports.getAllLeadsForAdmin = async (req, res) => {
       ORDER BY leads.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
-    const [trails] = await db.execute(fetchQuery, queryParams);
+    const [trails] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (trails.length === 0) {
       return res.status(404).json({
@@ -1639,7 +1639,7 @@ exports.approveLeadAction = async (req, res) => {
     const { column, date } = validActions[action];
 
     // Fetch lead's current status and fetched_by
-    const [results] = await db.query(
+    const [results] = await dhanDB.query(
       `SELECT id, fetched_by, under_us_status, code_request_status, aoma_request_status, activation_request_status FROM leads WHERE id = ?`,
       [leadId]
     );
@@ -1650,7 +1650,7 @@ exports.approveLeadAction = async (req, res) => {
     }
 
     // Check if lead is deleted by RM
-    const [leadData] = await db.execute(`SELECT deleted_by_rm FROM leads WHERE id = ?`, [leadId]);
+    const [leadData] = await dhanDB.execute(`SELECT deleted_by_rm FROM leads WHERE id = ?`, [leadId]);
     if (leadData.length === 0) {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
@@ -1689,16 +1689,16 @@ exports.approveLeadAction = async (req, res) => {
 
     // ✅ Code Request Approval
     if (action === "code_request") {
-      const [pointResult] = await db.execute(`SELECT points FROM conversion_points WHERE action = "code_approved"`);
+      const [pointResult] = await myapp.execute(`SELECT points FROM conversion_points WHERE action = "code_approved"`);
       const pointsToCredit = pointResult[0]?.points || 0;
 
-      await db.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
-      await db.execute(
+      await myapp.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
+      await myapp.execute(
         `INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)`,
         [lead.fetched_by, lead.id, 'code_approved', pointsToCredit]
       );
 
-      await db.execute(
+      await dhanDB.execute(
         `UPDATE leads SET code_request_status = 'approved', code_approved_at = NOW(), batch_code = ?,assigned_to = ?, sip_request_status = 'pending', ms_teams_request_status = 'pending', advance_msteams_details_sent='pending' WHERE id = ?`,
         [batch_code,rmId, leadId]
       );
@@ -1711,26 +1711,26 @@ exports.approveLeadAction = async (req, res) => {
       const [pointResult] = await db.execute(`SELECT points FROM conversion_points WHERE action = "aoma_approved"`);
       const pointsToCredit = pointResult[0]?.points || 0;
 
-      await db.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
-      await db.execute(
+      await dhanDB.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
+      await dhanDB.execute(
         `INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)`,
         [lead.fetched_by, lead.id, 'aoma_approved', pointsToCredit]
       );
 
-      await db.execute(`UPDATE leads SET aoma_request_status = 'approved', aoma_approved_at = NOW() WHERE id = ?`, [leadId]);
+      await dhanDB.execute(`UPDATE leads SET aoma_request_status = 'approved', aoma_approved_at = NOW() WHERE id = ?`, [leadId]);
 
       // ⭐ Check AOMA star eligibility
-      const [[{ count }]] = await db.execute(
+      const [[{ count }]] = await dhanDB.execute(
         `SELECT COUNT(*) as count FROM leads WHERE fetched_by = ? AND aoma_request_status = 'approved' AND (aoma_auto_approved_by_star IS NULL OR aoma_auto_approved_by_star = FALSE)`,
         [lead.fetched_by]
       );
-      const [[{ setting_value: threshold }]] = await db.execute(
+      const [[{ setting_value: threshold }]] = await dhanDB.execute(
         `SELECT setting_value FROM config WHERE setting_key = 'aoma_star_threshold'`
       );
 
       const numericThreshold = parseInt(threshold);
       if (numericThreshold && count % numericThreshold === 0) {
-        await db.execute(`UPDATE users SET aoma_stars = aoma_stars + 1 WHERE id = ?`, [lead.fetched_by]);
+        await dhanDB.execute(`UPDATE users SET aoma_stars = aoma_stars + 1 WHERE id = ?`, [lead.fetched_by]);
       }
 
       return res.status(200).json({ success: true, message: 'AOMA request approved, points credited, and stars updated if eligible.' });
@@ -1738,28 +1738,28 @@ exports.approveLeadAction = async (req, res) => {
 
     // ✅ Activation Request Approval
     if (action === "activation_request") {
-      const [pointResult] = await db.execute(`SELECT points FROM conversion_points WHERE action = "activation_approved"`);
+      const [pointResult] = await dhanDB.execute(`SELECT points FROM conversion_points WHERE action = "activation_approved"`);
       const pointsToCredit = pointResult[0]?.points || 0;
 
-      await db.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
-      await db.execute(
+      await dhanDB.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
+      await dhanDB.execute(
         `INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)`,
         [lead.fetched_by, lead.id, 'activation_approved', pointsToCredit]
       );
 
-      await db.execute(`UPDATE leads SET activation_request_status = 'approved', activation_approved_at = NOW() WHERE id = ?`, [leadId]);
+      await dhanDB.execute(`UPDATE leads SET activation_request_status = 'approved', activation_approved_at = NOW() WHERE id = ?`, [leadId]);
 
       // ⭐ Check Activation star eligibility
       const [[{ count }]] = await db.execute(
         `SELECT COUNT(*) as count FROM leads WHERE fetched_by = ? AND activation_request_status = 'approved'`,
         [lead.fetched_by]
       );
-      const [[{ setting_value: thresholdStr }]] = await db.execute(
+      const [[{ setting_value: thresholdStr }]] = await dhanDB.execute(
         `SELECT setting_value FROM config WHERE setting_key = 'activation_star_threshold'`
       );
       const threshold = parseInt(thresholdStr, 10);
       if (threshold && count % threshold === 0) {
-        await db.execute(`UPDATE users SET activation_stars = activation_stars + 1 WHERE id = ?`, [lead.fetched_by]);
+        await dhanDB.execute(`UPDATE users SET activation_stars = activation_stars + 1 WHERE id = ?`, [lead.fetched_by]);
       }
 
       return res.status(200).json({ success: true, message: 'Activation request approved, points credited, and stars updated if eligible.' });
@@ -1767,38 +1767,38 @@ exports.approveLeadAction = async (req, res) => {
 
     // ✅ MS Teams Approval
     if (action === "ms_teams_request") {
-      const [pointResult] = await db.execute(`SELECT points FROM conversion_points WHERE action = "ms_teams_approved"`);
+      const [pointResult] = await myapp.execute(`SELECT points FROM conversion_points WHERE action = "dhan_ms_teams_approved"`);
       const pointsToCredit = pointResult[0]?.points || 0;
 
-      await db.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
-      await db.execute(
+      await myapp.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
+      await myapp.execute(
         `INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)`,
         [lead.fetched_by, lead.id, 'ms_teams_approved', pointsToCredit]
       );
 
-      await db.execute(`UPDATE leads SET ms_teams_request_status = 'approved', ms_teams_approved_at = NOW() WHERE id = ?`, [leadId]);
+      await dhanDB.execute(`UPDATE leads SET ms_teams_request_status = 'approved', ms_teams_approved_at = NOW() WHERE id = ?`, [leadId]);
 
       return res.status(200).json({ success: true, message: 'MS Teams request approved, points credited.' });
     }
 
     // ✅ SIP Approval
     if (action === "sip_request") {
-      const [pointResult] = await db.execute(`SELECT points FROM conversion_points WHERE action = "sip_approved"`);
+      const [pointResult] = await dhanDB.execute(`SELECT points FROM conversion_points WHERE action = "sip_approved"`);
       const pointsToCredit = pointResult[0]?.points || 0;
 
-      await db.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
-      await db.execute(
+      await dhanDB.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
+      await dhanDB.execute(
         `INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)`,
         [lead.fetched_by, lead.id, 'sip_approved', pointsToCredit]
       );
 
-      await db.execute(`UPDATE leads SET sip_request_status = 'approved', sip_approved_at = NOW() WHERE id = ?`, [leadId]);
+      await dhanDB.execute(`UPDATE leads SET sip_request_status = 'approved', sip_approved_at = NOW() WHERE id = ?`, [leadId]);
 
       return res.status(200).json({ success: true, message: 'SIP request approved, points credited.' });
     }
 
     // ✅ Generic Approval (fallback)
-    const [result] = await db.query(
+    const [result] = await dhanDB.query(
       `UPDATE leads SET ${column} = 'approved', ${date} = NOW() WHERE id = ?`,
       [leadId]
     );
@@ -1834,7 +1834,7 @@ exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
     }
 
     // Count total matching records
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total FROM leads ${whereClause}`,
       queryParams
     );
@@ -1851,7 +1851,7 @@ exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const [msLeads] = await db.execute(fetchQuery, queryParams);
+    const [msLeads] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (msLeads.length === 0) {
       return res.status(404).json({
@@ -1973,7 +1973,7 @@ exports.msTeamsDetailsSent = async( req, res) => {
     }
 
 
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM leads WHERE id = ? AND code_request_status  = "approved"',
       [leadId]
     );
@@ -1986,7 +1986,7 @@ exports.msTeamsDetailsSent = async( req, res) => {
 
     if (action === 'approve') {
         // Update lead status
-        await db.execute(
+        await dhanDB.execute(
           'UPDATE leads SET ms_details_sent  = "approved", basic_ms_teams_details_send_at = NOW() WHERE id = ?',
           [leadId]
         );
@@ -1996,7 +1996,7 @@ exports.msTeamsDetailsSent = async( req, res) => {
       
     } else if (action === 'reject') {
   
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET ms_details_sent = "rejected" WHERE id = ?',
         [leadId]
       );
@@ -2021,7 +2021,7 @@ exports.adminDeleteLead = async (req, res) => {
 
   try {
     // Check if the lead exists and get its code approval status
-    const [check] = await db.execute(`
+    const [check] = await dhanDB.execute(`
       SELECT id, code_request_status FROM leads WHERE id = ?
     `, [leadId]);
 
@@ -2043,7 +2043,7 @@ exports.adminDeleteLead = async (req, res) => {
     }
 
     // Proceed with deletion
-    await db.execute(`DELETE FROM leads WHERE id = ?`, [leadId]);
+    await dhanDB.execute(`DELETE FROM leads WHERE id = ?`, [leadId]);
 
     return res.status(200).json({
       success: true,
@@ -2072,7 +2072,7 @@ exports.deleteLeadFromDeleteRequest = async (req, res) => {
 
   try {
     // Check if the lead exists in admin_delete_list
-    const [check] = await db.execute(`
+    const [check] = await dhanDB.execute(`
       SELECT lead_id FROM admin_delete_list WHERE lead_id = ?
     `, [leadId]);
 
@@ -2084,7 +2084,7 @@ exports.deleteLeadFromDeleteRequest = async (req, res) => {
     }
 
     // Check if the lead still exists in leads table
-    const [check1] = await db.execute(`
+    const [check1] = await dhanDB.execute(`
       SELECT id FROM leads WHERE id = ?
     `, [leadId]);
 
@@ -2096,10 +2096,10 @@ exports.deleteLeadFromDeleteRequest = async (req, res) => {
     }
 
     // First delete from admin_delete_list to avoid FK error
-    await db.execute(`DELETE FROM admin_delete_list WHERE lead_id = ?`, [leadId]);
+    await dhanDB.execute(`DELETE FROM admin_delete_list WHERE lead_id = ?`, [leadId]);
 
     // Then delete from leads
-    await db.execute(`DELETE FROM leads WHERE id = ?`, [leadId]);
+    await dhanDB.execute(`DELETE FROM leads WHERE id = ?`, [leadId]);
 
     return res.status(200).json({
       success: true,
@@ -2132,7 +2132,7 @@ exports.fetchAdvanceMsTeamsLeadsForAdmin = async (req, res) => {
     }
 
     // Count total matching records
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total FROM leads ${whereClause}`,
       queryParams
     );
@@ -2149,7 +2149,7 @@ exports.fetchAdvanceMsTeamsLeadsForAdmin = async (req, res) => {
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const [advanceMsLeads] = await db.execute(fetchQuery, queryParams);
+    const [advanceMsLeads] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (advanceMsLeads.length === 0) {
       return res.status(404).json({
@@ -2205,7 +2205,7 @@ exports.getRequestedOldLeadForRefer = async (req, res) => {
     }
 
     // Count total
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery} ${whereClause}`,
       queryParams
     );
@@ -2218,7 +2218,7 @@ exports.getRequestedOldLeadForRefer = async (req, res) => {
       ORDER BY referred_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
-    const [advanceCodedRequests] = await db.execute(fetchQuery, queryParams);
+    const [advanceCodedRequests] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (advanceCodedRequests.length === 0) {
       return res.status(404).json({
@@ -2309,7 +2309,7 @@ exports.handleOldLeadApproval = async (req, res) => {
     }
  
     // Validate existence of the lead
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM advance_batch WHERE id = ? AND old_code_request_status = "requested"',
       [leadId]
     );
@@ -2325,7 +2325,7 @@ exports.handleOldLeadApproval = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Batch Code is required for approval.' });
       }
 
-      await db.execute(
+      await dhanDB.execute(
         `UPDATE advance_batch 
          SET 
             old_code_request_status = 'approved',
@@ -2342,7 +2342,7 @@ exports.handleOldLeadApproval = async (req, res) => {
       return res.status(200).json({ success: true, message: 'Code Request approved, batch code saved, RM assigned, and points credited.' });
 
     } else if (action === 'reject') {
-      await db.execute(
+      await dhanDB.execute(
         `UPDATE advance_batch 
          SET old_code_request_status = 'rejected'
          WHERE id = ?`,
@@ -2372,7 +2372,7 @@ exports.advanceMsTeamsDetailsSent = async( req, res) => {
     }
 
 
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM leads WHERE id = ? AND code_request_status  = "approved"',
       [leadId]
     );
@@ -2385,7 +2385,7 @@ exports.advanceMsTeamsDetailsSent = async( req, res) => {
 
     if (action === 'approve') {
         // Update lead status
-        await db.execute(
+        await dhanDB.execute(
           'UPDATE leads SET  advance_msteams_details_sent  = "approved",  advance_ms_teams_details_send_at  = NOW() WHERE id = ?',
           [leadId]
         );
@@ -2395,7 +2395,7 @@ exports.advanceMsTeamsDetailsSent = async( req, res) => {
       
     } else if (action === 'reject') {
   
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET  advance_msteams_details_sent = "rejected" WHERE id = ?',
         [leadId]
       );
@@ -2421,7 +2421,7 @@ exports.oldBasicMsIdPassSent = async( req, res) => {
     }
 
 
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM advance_batch WHERE id = ? AND old_code_request_status  = "approved"',
       [leadId]
     );
@@ -2434,7 +2434,7 @@ exports.oldBasicMsIdPassSent = async( req, res) => {
 
     if (action === 'approve') {
         // Update lead status
-        await db.execute(
+        await dhanDB.execute(
           'UPDATE advance_batch SET  old_basic_ms_clients_msdetails  = "approved", basic_ms_idpass_sent_at  = NOW() WHERE id = ?',
           [leadId]
         );
@@ -2444,7 +2444,7 @@ exports.oldBasicMsIdPassSent = async( req, res) => {
       
     } else if (action === 'reject') {
   
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE advance_batch SET  old_basic_ms_clients_msdetails = "rejected" WHERE id = ?',
         [leadId]
       );
@@ -2469,7 +2469,7 @@ exports.oldAdvanceMsIdPassSent = async( req, res) => {
     }
 
 
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM advance_batch WHERE id = ? AND old_code_request_status  = "approved"',
       [leadId]
     );
@@ -2482,7 +2482,7 @@ exports.oldAdvanceMsIdPassSent = async( req, res) => {
 
     if (action === 'approve') {
         // Update lead status
-        await db.execute(
+        await dhanDB.execute(
           'UPDATE advance_batch SET  advance_ms_clients_msdetails  = "approved", advance_ms_idpass_sent_at  = NOW() WHERE id = ?',
           [leadId]
         );
@@ -2492,7 +2492,7 @@ exports.oldAdvanceMsIdPassSent = async( req, res) => {
       
     } else if (action === 'reject') {
   
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE advance_batch SET  advance_ms_clients_msdetails = "rejected" WHERE id = ?',
         [leadId]
       );
@@ -2538,7 +2538,7 @@ exports.fetchBasicOldClientLeadsForMsTeams = async (req, res) => {
     }
 
     // Count total matching records
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total FROM advance_batch ${whereClause}`,
       queryParams
     );
@@ -2554,7 +2554,7 @@ exports.fetchBasicOldClientLeadsForMsTeams = async (req, res) => {
       ORDER BY old_code_approved_at ASC
       LIMIT ${limit} OFFSET ${offset}
     `;
-    const [oldBasicMsLeads] = await db.execute(fetchQuery, queryParams);
+    const [oldBasicMsLeads] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (oldBasicMsLeads.length === 0) {
       return res.status(404).json({
@@ -2614,7 +2614,7 @@ exports.fetchAdvanceOldClientLeadsForMsTeams = async (req, res) => {
     }
 
     // Count total matching records
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total FROM advance_batch ${whereClause}`,
       queryParams
     );
@@ -2630,7 +2630,7 @@ exports.fetchAdvanceOldClientLeadsForMsTeams = async (req, res) => {
       ORDER BY old_code_approved_at ASC
       LIMIT ${limit} OFFSET ${offset}
     `;
-    const [oldAdvanceMsLeads] = await db.execute(fetchQuery, queryParams);
+    const [oldAdvanceMsLeads] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (oldAdvanceMsLeads.length === 0) {
       return res.status(404).json({
@@ -2680,7 +2680,7 @@ exports.getUsersAdvanceMSTeamsRequests = async (req, res) => {
     }
 
     // Count query
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
@@ -2689,7 +2689,7 @@ exports.getUsersAdvanceMSTeamsRequests = async (req, res) => {
 
     // Fetch query
     const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY ms_teams_login_requested_at DESC LIMIT ${limit} OFFSET ${offset}`;
-    const [advanceMsTeamsRequests] = await db.execute(fetchQuery, queryParams);
+    const [advanceMsTeamsRequests] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (advanceMsTeamsRequests.length === 0) {
       return res.status(404).json({
@@ -2730,7 +2730,7 @@ exports.approveAdvanceMsTeamsLoginRequest = async (req, res) => {
 
   try {
     // Check if lead exists and is in MS Teams requested state
-    const [leadResult] = await db.execute(
+    const [leadResult] = await dhanDB.execute(
       'SELECT * FROM leads WHERE id = ? AND advanced_ms_teams_request_status  = "requested"',
       [leadId]
     );
@@ -2746,7 +2746,7 @@ exports.approveAdvanceMsTeamsLoginRequest = async (req, res) => {
 
     if (action === 'approve') {
       // Get MS Teams Approved point value
-      const [pointResult] = await db.execute(
+      const [pointResult] = await myapp.execute(
         'SELECT points FROM conversion_points WHERE action = "advance_ms_teams_approved"'
       );
 
@@ -2760,19 +2760,19 @@ exports.approveAdvanceMsTeamsLoginRequest = async (req, res) => {
       const pointsToCredit = pointResult[0].points;
 
       // Credit points to RM's wallet
-      await db.execute(
+      await myapp.execute(
         'UPDATE rm SET wallet = wallet + ? WHERE id = ?',
         [pointsToCredit, lead.assigned_to]
       );
 
       // Log wallet transaction
-      await db.execute(
+      await myapp.execute(
         'INSERT INTO wallet_transactions (rm_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
-        [lead.assigned_to, lead.id, 'advance_ms_teams_approved', pointsToCredit]
+        [lead.assigned_to, lead.id, 'dhan_advance_ms_teams_approved', pointsToCredit]
       );
 
       // Update lead status to approved
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET advanced_ms_teams_request_status = "approved", advanced_ms_teams_approved_at = NOW() WHERE id = ?',
         [leadId]
       );
@@ -2784,7 +2784,7 @@ exports.approveAdvanceMsTeamsLoginRequest = async (req, res) => {
 
     } else {
       // Reject case: just update status
-      await db.execute(
+      await dhanDB.execute(
         'UPDATE leads SET advanced_ms_teams_request_status = "rejected" WHERE id = ?',
         [leadId]
       );

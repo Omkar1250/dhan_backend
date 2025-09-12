@@ -1,5 +1,5 @@
 const bcrypt = require('bcryptjs');
-const db = require('../config/db');
+const { myapp, dhanDB } = require("../config/db");
 const jwt = require('jsonwebtoken');
 require("dotenv").config();
 
@@ -15,8 +15,8 @@ exports.loginUser = async (req, res) => {
     let role = null;
 
     // 1. Check in admins table
-    const [adminRows] = await db.execute(
-      "SELECT * FROM admins WHERE personal_number = ?",
+    const [adminRows] = await myapp.execute(
+      "SELECT * FROM myapp.admins WHERE personal_number = ?",
       [personal_number]
     );
 
@@ -31,8 +31,8 @@ exports.loginUser = async (req, res) => {
 
     } else {
       // 2. Check in users table (RM)
-      const [rmRows] = await db.execute(
-        "SELECT * FROM users WHERE personal_number = ?",
+      const [rmRows] = await myapp.execute(
+        "SELECT * FROM myapp.users WHERE personal_number = ?",
         [personal_number]
       );
 
@@ -46,8 +46,8 @@ exports.loginUser = async (req, res) => {
 
       } else {
         // 3. Check in RM (main RM) table
-        const [mainRmRows] = await db.execute(
-          "SELECT * FROM rm WHERE personal_number = ?",
+        const [mainRmRows] = await dhanDB.execute(
+          "SELECT * FROM dhanDB.rm WHERE personal_number = ?",
           [personal_number]
         );
 
@@ -116,7 +116,7 @@ exports.adminSignup = async (req, res) => {
 
     const sql = `INSERT INTO admins (name, personal_number, ck_number, userid, password) VALUES (?, ?, ?, ?, ?)`;
 
-    const [result] = await db.execute(sql, [name, personal_number, ck_number, userid, hashedPassword]);
+    const [result] = await myapp.execute(sql, [name, personal_number, ck_number, userid, hashedPassword]);
 
     res.json({ message: 'Admin created successfully', adminId: result.insertId });
   } catch (err) {
@@ -200,7 +200,7 @@ exports.createRm = async (req, res) => {
     }
 
     // Check if personal_number or userid already exists
-    const [existing] = await db.execute(
+    const [existing] = await myapp.execute(
       'SELECT * FROM users WHERE personal_number = ? OR userid = ?',
       [personal_number, userid]
     );
@@ -216,7 +216,7 @@ exports.createRm = async (req, res) => {
     const sql = `INSERT INTO users (name, personal_number, ck_number, userid, password, upi_id, role) 
                  VALUES (?, ?, ?, ?, ?, ?, 'rm')`;
 
-    const [result] = await db.execute(sql, [
+    const [result] = await myapp.execute(sql, [
       name,
       personal_number,
       ck_number,
@@ -307,7 +307,7 @@ exports.rmUpdate = async (req, res) => {
     const { name, personal_number, ck_number, userid, password, upi_id } = req.body;
 
     // Check if RM exists
-    const [existing] = await db.execute('SELECT * FROM users WHERE id = ? AND role = "rm"', [id]);
+    const [existing] = await myapp.execute('SELECT * FROM users WHERE id = ? AND role = "rm"', [id]);
 
     if (existing.length === 0) {
       return res.status(404).json({
@@ -321,7 +321,7 @@ exports.rmUpdate = async (req, res) => {
                  SET name = ?, personal_number = ?, ck_number = ?, userid = ?, password = ?, upi_id = ? 
                  WHERE id = ?`;
 
-    await db.execute(sql, [name, personal_number, ck_number, userid, password, upi_id, id]);
+    await myapp.execute(sql, [name, personal_number, ck_number, userid, password, upi_id, id]);
 
     res.status(200).json({
       success: true,
@@ -344,7 +344,7 @@ exports.rmDelete = async (req, res) => {
     const { id } = req.params;
 
     // Check if RM exists
-    const [existing] = await db.execute('SELECT * FROM users WHERE id = ? AND role = "rm"', [id]);
+    const [existing] = await myapp.execute('SELECT * FROM users WHERE id = ? AND role = "rm"', [id]);
 
     if (existing.length === 0) {
       return res.status(404).json({
@@ -354,7 +354,7 @@ exports.rmDelete = async (req, res) => {
     }
 
     // Delete query
-    await db.execute('DELETE FROM users WHERE id = ?', [id]);
+    await myapp.execute('DELETE FROM users WHERE id = ?', [id]);
 
     res.status(200).json({
       success: true,
@@ -373,7 +373,7 @@ exports.rmDelete = async (req, res) => {
 // Get all RMs
 exports.getAllRms = async (req, res) => {
   try {
-    const [rows] = await db.execute('SELECT id, name, personal_number, ck_number, userid, upi_id, password, created_at FROM users WHERE role = "rm"');
+    const [rows] = await myapp.execute('SELECT id, name, personal_number, ck_number, userid, upi_id, password, created_at FROM users WHERE role = "rm"');
 
     res.status(200).json({
       success: true,
@@ -396,7 +396,7 @@ exports.getSingleRm = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [rows] = await db.execute(
+    const [rows] = await myapp.execute(
       'SELECT id, name, personal_number, ck_number, userid, upi_id, created_at FROM users WHERE id = ? AND role = "rm"',
       [id]
     );
@@ -435,7 +435,7 @@ exports.createMainRM = async(req, res) => {
     }
 
     // Check if personal_number or userid already exists
-    const [existing] = await db.execute(
+    const [existing] = await dhanDB.execute(
       'SELECT * FROM rm WHERE personal_number = ? OR userid = ?',
       [personal_number, userid]
     );
@@ -451,7 +451,7 @@ exports.createMainRM = async(req, res) => {
     const sql = `INSERT INTO rm (name, personal_number, ck_number, userid, password, upi_id, role) 
                  VALUES (?, ?, ?, ?, ?, ?, 'mainRm')`;
 
-    const [result] = await db.execute(sql, [
+    const [result] = await dhanDB.execute(sql, [
       name,
       personal_number,
       ck_number,
@@ -479,7 +479,7 @@ exports.mainRmUpdate = async (req, res) => {
     const { name, personal_number, ck_number, userid, password, upi_id } = req.body;
 
     // Check if RM exists
-    const [existing] = await db.execute('SELECT * FROM rm WHERE id = ? AND role = "mainRm"', [id]);
+    const [existing] = await dhanDB.execute('SELECT * FROM rm WHERE id = ? AND role = "mainRm"', [id]);
 
     if (existing.length === 0) {
       return res.status(404).json({
@@ -493,7 +493,7 @@ exports.mainRmUpdate = async (req, res) => {
                  SET name = ?, personal_number = ?, ck_number = ?, userid = ?, password = ?, upi_id = ? 
                  WHERE id = ?`;
 
-    await db.execute(sql, [name, personal_number, ck_number, userid, password, upi_id, id]);
+    await dhanDB.execute(sql, [name, personal_number, ck_number, userid, password, upi_id, id]);
 
     res.status(200).json({
       success: true,
@@ -515,7 +515,7 @@ exports.mainRmDelete = async (req, res) => {
     const { id } = req.params;
 
     // Check if RM exists
-    const [existing] = await db.execute('SELECT * FROM rm WHERE id = ? AND role = "rm"', [id]);
+    const [existing] = await dhanDB.execute('SELECT * FROM rm WHERE id = ? AND role = "rm"', [id]);
 
     if (existing.length === 0) {
       return res.status(404).json({
@@ -525,7 +525,7 @@ exports.mainRmDelete = async (req, res) => {
     }
 
     // Delete query
-    await db.execute('DELETE FROM rm WHERE id = ?', [id]);
+    await myapp.execute('DELETE FROM rm WHERE id = ?', [id]);
 
     res.status(200).json({
       success: true,
@@ -544,7 +544,7 @@ exports.mainRmDelete = async (req, res) => {
 
 exports.getAllMainRm = async (req, res) => {
   try {
-    const [rows] = await db.execute('SELECT id, name, personal_number, ck_number, userid, upi_id, password, created_at FROM rm WHERE role = "mainRm"');
+    const [rows] = await dhanDB.execute('SELECT id, name, personal_number, ck_number, userid, upi_id, password, created_at FROM rm WHERE role = "mainRm"');
 
     res.status(200).json({
       success: true,

@@ -1,4 +1,4 @@
-const db = require('../config/db'); // adjust db path if needed
+const { myapp, dhanDB } = require("../config/db");
 
 exports.referFriendLead = async (req, res) => {
     try {
@@ -15,14 +15,14 @@ exports.referFriendLead = async (req, res) => {
       }
   
       // Check if mobile_number already exists
-      const [existingLead] = await db.execute('SELECT id FROM leads WHERE mobile_number = ?', [mobile_number]);
+      const [existingLead] = await dhanDB.execute('SELECT id FROM leads WHERE mobile_number = ?', [mobile_number]);
   
       if (existingLead.length > 0) {
         return res.status(400).json({ message: 'Mobile number already exists.' });
       }
   
       // Insert new lead
-      await db.execute(
+      await dhanDB.execute(
         'INSERT INTO leads (name, mobile_number, whatsapp_mobile_number, fetched_by, referred_by_rm, fetched_at) VALUES (?, ?, ?, ?, ?, NOW())',
         [name, mobile_number, whatsapp_mobile_number, userId,userId]
       );
@@ -53,7 +53,7 @@ exports.checkMobileNumber = async (req, res) => {
       }
   
       // Check if mobile_number exists
-      const [existingLead] = await db.execute('SELECT id FROM leads WHERE mobile_number = ?', [mobile_number]);
+      const [existingLead] = await dhanDB.execute('SELECT id FROM leads WHERE mobile_number = ?', [mobile_number]);
   
       if (existingLead.length > 0) {
         return res.status(200).json({ exists: true, message: 'Number Already Exists.' });
@@ -88,7 +88,7 @@ exports.fetchReferLeadsRMs = async (req, res) => {
     }
 
     // Count query to get the total number of leads
-    const [countResult] = await db.execute(
+    const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
@@ -99,7 +99,7 @@ exports.fetchReferLeadsRMs = async (req, res) => {
     const fetchQuery = `SELECT id, name, mobile_number, whatsapp_mobile_number, under_us_status, fetched_at 
                         ${baseQuery}${whereClause} 
                         ORDER BY fetched_at DESC LIMIT ${limit} OFFSET ${offset}`;
-    const [referLeads] = await db.execute(fetchQuery, queryParams);
+    const [referLeads] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (referLeads.length === 0) {
       return res.status(404).json({

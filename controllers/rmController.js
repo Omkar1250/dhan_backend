@@ -1,11 +1,11 @@
-const db = require('../config/db')
+const { myapp, dhanDB } = require("../config/db");
 
 //Handler to get client list
 exports.getYourClientList = async (req, res) => {
     const rmId = req.user.id;
   
     try {
-      const [clients] = await db.execute(
+      const [clients] = await dhanDB.execute(
         `SELECT * FROM leads 
          WHERE fetched_by = ? 
          AND activation_request_status = "approved"

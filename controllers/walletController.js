@@ -1,11 +1,11 @@
 
-const db = require('../config/db');
+const { myapp, dhanDB } = require("../config/db");
 
 
 //get wallet poits
 exports.getWalletBalance = async (req, res) => {
     try {
-      const [result] = await db.execute(
+      const [result] = await myapp.execute(
         'SELECT wallet FROM users WHERE id = ?',
         [req.user.id]
       );
@@ -24,7 +24,7 @@ exports.getWalletBalance = async (req, res) => {
   
     try {
       // Fetch all transactions for this user ordered by latest first
-      const [transactions] = await db.execute(
+      const [transactions] = await myapp.execute(
         'SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC',
         [userId]
       );
@@ -45,13 +45,13 @@ exports.adminPayout = async (req, res) => {
   
     try {
       // Deduct points
-      await db.execute(
+      await myapp.execute(
         'UPDATE users SET wallet = wallet - ? WHERE id = ?',
         [pointsToDeduct, rmId]
       );
   
       // Log transaction
-      await db.execute(
+      await myapp.execute(
         `INSERT INTO wallet_transactions (user_id, action, points) 
          VALUES (?, ?, ?)`,
         [rmId, `Withdrawal: ₹${amountInRupees}`, -pointsToDeduct]
@@ -66,60 +66,111 @@ exports.adminPayout = async (req, res) => {
   };
   
 
-  //RM PAYEMENT OVERVIEW
+  //jrm
 exports.getPaymentsOverview = async (req, res) => {
   try {
-    const rmId = req.user.id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const rmId = req.user?.id;
+    if (!rmId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    // pagination (clamped)
+    const page   = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit  = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 5), 100);
     const offset = (page - 1) * limit;
-    const search = req.query.search || "";
 
-    // WHERE clause and params
-    let whereClause = `WHERE wt.user_id = ?`;
-    const queryParams = [rmId];
+    const rawSearch = (req.query.search || "").trim();
+    const hasSearch = rawSearch.length > 0;
+    const kwLower   = `%${rawSearch.toLowerCase()}%`;
+    const kwPlain   = `%${rawSearch}%`;
 
-    if (search) {
-      whereClause += `
-        AND (
-          LOWER(wt.action) LIKE ? OR 
-          LOWER(l.name) LIKE ? OR 
-          l.mobile_number LIKE ?
+    // WHERE
+    const whereParts = ["wt.user_id = ?"];
+    const whereParams = [rmId];
+
+    if (hasSearch) {
+      whereParts.push(`
+        (
+          LOWER(wt.action) LIKE ? OR
+          LOWER(
+            CASE
+              WHEN wt.lead_source = 'myapp'  THEN ml.name
+              WHEN wt.lead_source = 'dhanDB' THEN dl.name
+              ELSE COALESCE(ml.name, dl.name)
+            END
+          ) LIKE ? OR
+          (
+            CASE
+              WHEN wt.lead_source = 'myapp'  THEN ml.mobile_number
+              WHEN wt.lead_source = 'dhanDB' THEN dl.mobile_number
+              ELSE COALESCE(ml.mobile_number, dl.mobile_number)
+            END
+          ) LIKE ?
         )
-      `;
-      const keyword = `%${search.toLowerCase()}%`;
-      queryParams.push(keyword, keyword, keyword);
+      `);
+      whereParams.push(kwLower, kwLower, kwPlain);
     }
 
-    // Count total transactions
-    const [totalResult] = await db.execute(
-      `SELECT COUNT(*) AS total FROM wallet_transactions wt 
-       LEFT JOIN leads l ON wt.lead_id = l.id 
-       ${whereClause}`,
-      queryParams
-    );
-    const totalTransactions = totalResult[0].total;
-    const totalPages = Math.ceil(totalTransactions / limit);
+    const whereSql = whereParts.join(" AND ");
 
-    // Total points
-    const [totalPointsResult] = await db.execute(
-      `SELECT SUM(points) AS totalPoints FROM wallet_transactions WHERE user_id = ?`,
+    // COUNT
+    const [totalResult] = await myapp.execute(
+      `
+      SELECT COUNT(*) AS total
+      FROM myapp.wallet_transactions wt
+      LEFT JOIN myapp.leads  ml ON wt.lead_id = ml.id
+      LEFT JOIN dhanDB.leads dl ON wt.lead_id = dl.id
+      WHERE ${whereSql}
+      `,
+      whereParams
+    );
+    const totalTransactions = totalResult?.[0]?.total || 0;
+    const totalPages = Math.max(1, Math.ceil(totalTransactions / limit));
+
+    // TOTAL POINTS
+    const [totalPointsResult] = await myapp.execute(
+      `SELECT COALESCE(SUM(points), 0) AS totalPoints
+       FROM myapp.wallet_transactions
+       WHERE user_id = ?`,
       [rmId]
     );
-    const totalPoints = totalPointsResult[0].totalPoints || 0;
+    const totalPoints = totalPointsResult?.[0]?.totalPoints || 0;
 
-    // Fetch paginated transactions with lead details
-    const [transactions] = await db.execute(
-      `SELECT wt.*, l.name AS lead_name, l.mobile_number 
-       FROM wallet_transactions wt 
-       LEFT JOIN leads l ON wt.lead_id = l.id 
-       ${whereClause} 
-       ORDER BY wt.created_at DESC 
-       LIMIT ${limit} OFFSET ${offset}`,
-      [...queryParams]
+    // PAGE — explicit cols, aliases match UI: lead_name, lead_mobile
+    const [transactions] = await myapp.execute(
+      `
+      SELECT
+        wt.id,
+        wt.user_id,
+        wt.lead_id,
+        wt.lead_source,
+        wt.action,
+        wt.points,
+        wt.created_at,
+
+        CASE
+          WHEN wt.lead_source = 'myapp'  THEN ml.name
+          WHEN wt.lead_source = 'dhanDB' THEN dl.name
+          ELSE COALESCE(ml.name, dl.name)
+        END AS lead_name,
+
+        CASE
+          WHEN wt.lead_source = 'myapp'  THEN ml.mobile_number
+          WHEN wt.lead_source = 'dhanDB' THEN dl.mobile_number
+          ELSE COALESCE(ml.mobile_number, dl.mobile_number)
+        END AS mobile_number
+
+      FROM myapp.wallet_transactions wt
+      LEFT JOIN myapp.leads  ml ON wt.lead_id = ml.id
+      LEFT JOIN dhanDB.leads dl ON wt.lead_id = dl.id
+      WHERE ${whereSql}
+      ORDER BY wt.created_at DESC, wt.id DESC
+      LIMIT ${limit} OFFSET ${offset}
+      -- If your driver REQUIRES curly placeholders, use:
+      -- LIMIT {limit} OFFSET {offset}
+      `,
+      whereParams
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Payments overview fetched successfully.",
       transactions,
@@ -130,9 +181,15 @@ exports.getPaymentsOverview = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching transactions:", error);
-    res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 };
+
+
+
+
+
+
 
 
 
@@ -141,7 +198,7 @@ exports.getPaymentsOverview = async (req, res) => {
   exports.getAllJRMsByPoints = async (req, res) => {
     try {
       // Fetch JRMs sorted by wallet points
-      const [users] = await db.execute(
+      const [users] = await myapp.execute(
         'SELECT id, name,personal_number,ck_number, wallet,userid, upi_id FROM users WHERE role = "rm" ORDER BY wallet DESC'
       );
    
@@ -166,7 +223,7 @@ exports.getPaymentsOverview = async (req, res) => {
   
     try {
       // Query to calculate total wallet points for the given rmId
-      const [rows] = await db.execute(
+      const [rows] = await myapp.execute(
         'SELECT SUM(points) AS totalPoints FROM wallet_transactions WHERE user_id = ?',
         [rmId]
       );
@@ -212,7 +269,7 @@ exports.getRmWalletTransactions = async (req, res) => {
     }
 
     // Count total transactions
-    const [totalResult] = await db.execute(
+    const [totalResult] = await myapp.execute(
       `SELECT COUNT(*) AS total FROM wallet_transactions wt 
        LEFT JOIN leads l ON wt.lead_id = l.id 
        ${whereClause}`,
@@ -222,14 +279,14 @@ exports.getRmWalletTransactions = async (req, res) => {
     const totalPages = Math.ceil(totalTransactions / limit);
 
     // Total points
-    const [totalPointsResult] = await db.execute(
+    const [totalPointsResult] = await myapp.execute(
       `SELECT SUM(points) AS totalPoints FROM wallet_transactions WHERE rm_id = ?`,
       [rmId]
     );
     const totalPoints = totalPointsResult[0].totalPoints || 0;
 
     // Fetch paginated transactions with lead details
-    const [transactions] = await db.execute(
+    const [transactions] = await myapp.execute(
       `SELECT wt.*, l.name AS lead_name, l.mobile_number 
        FROM wallet_transactions wt 
        LEFT JOIN leads l ON wt.lead_id = l.id 
