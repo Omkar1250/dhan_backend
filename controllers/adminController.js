@@ -1258,7 +1258,7 @@ exports.getAllLeadsForAdmin = async (req, res) => {
     const offset = (page - 1) * limit;
     const search = req.query.search || "";
 
-    let baseQuery = `FROM leads LEFT JOIN users ON leads.fetched_by = users.id`;
+    let baseQuery = `FROM leads LEFT JOIN myapp.users ON leads.fetched_by = users.id`;
     let whereClause = ` WHERE 1=1`;
     const queryParams = [];
 
@@ -1689,13 +1689,13 @@ exports.approveLeadAction = async (req, res) => {
 
     // ✅ Code Request Approval
     if (action === "code_request") {
-      const [pointResult] = await myapp.execute(`SELECT points FROM conversion_points WHERE action = "code_approved"`);
+      const [pointResult] = await myapp.execute(`SELECT points FROM conversion_points WHERE action = "dhan_code_approved"`);
       const pointsToCredit = pointResult[0]?.points || 0;
 
       await myapp.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
       await myapp.execute(
         `INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)`,
-        [lead.fetched_by, lead.id, 'code_approved', pointsToCredit]
+        [lead.fetched_by, lead.id, 'dhan_code_approved', pointsToCredit]
       );
 
       await dhanDB.execute(
@@ -1773,7 +1773,7 @@ exports.approveLeadAction = async (req, res) => {
       await myapp.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
       await myapp.execute(
         `INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)`,
-        [lead.fetched_by, lead.id, 'ms_teams_approved', pointsToCredit]
+        [lead.fetched_by, lead.id, 'dhan_ms_teams_approved', pointsToCredit]
       );
 
       await dhanDB.execute(`UPDATE leads SET ms_teams_request_status = 'approved', ms_teams_approved_at = NOW() WHERE id = ?`, [leadId]);
@@ -2731,7 +2731,7 @@ exports.approveAdvanceMsTeamsLoginRequest = async (req, res) => {
   try {
     // Check if lead exists and is in MS Teams requested state
     const [leadResult] = await dhanDB.execute(
-      'SELECT * FROM leads WHERE id = ? AND advanced_ms_teams_request_status  = "requested"',
+      'SELECT * FROM leads WHERE id = ? AND dhan_advanced_ms_teams_request_status  = "requested"',
       [leadId]
     );
 
@@ -2747,7 +2747,7 @@ exports.approveAdvanceMsTeamsLoginRequest = async (req, res) => {
     if (action === 'approve') {
       // Get MS Teams Approved point value
       const [pointResult] = await myapp.execute(
-        'SELECT points FROM conversion_points WHERE action = "advance_ms_teams_approved"'
+        'SELECT points FROM conversion_points WHERE action = "dhan_advance_ms_teams_approved"'
       );
 
       if (!pointResult.length) {
