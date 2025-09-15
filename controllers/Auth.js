@@ -14,65 +14,51 @@ exports.loginUser = async (req, res) => {
     let user = null;
     let role = null;
 
-    // 1. Check in admins table
-    const [adminRows] = await myapp.execute(
-      "SELECT * FROM myapp.admins WHERE personal_number = ?",
-      [personal_number]
-    );
+    // Define sources to check
+    const sources = [
+      { db: myapp, table: "admins", isAdmin: true, hashCheck: true },
+      { db: myapp, table: "users", isAdmin: false, hashCheck: false }, // plaintext? switch to true if hashed
+      { db: dhanDB, table: "rm", isAdmin: false, hashCheck: false },   // plaintext? switch to true if hashed
+    ];
 
-    if (adminRows.length > 0) {
-      user = adminRows[0];
-      role = "admin";
-
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) {
-        return res.status(401).json({ success: false, message: "Invalid credentials" });
-      }
-
-    } else {
-      // 2. Check in users table (RM)
-      const [rmRows] = await myapp.execute(
-        "SELECT * FROM myapp.users WHERE personal_number = ?",
+    for (const source of sources) {
+      const [rows] = await source.db.execute(
+        `SELECT * FROM ${source.table} WHERE personal_number = ?`,
         [personal_number]
       );
 
-      if (rmRows.length > 0) {
-        user = rmRows[0];
-        role = user.role;
+      if (rows.length > 0) {
+        user = rows[0];
+        role = source.isAdmin ? "admin" : user.role;
 
-        if (user.password !== password) {
-          return res.status(401).json({ success: false, message: "Invalid credentials" });
-        }
-
-      } else {
-        // 3. Check in RM (main RM) table
-        const [mainRmRows] = await dhanDB.execute(
-          "SELECT * FROM dhanDB.rm WHERE personal_number = ?",
-          [personal_number]
-        );
-
-        if (mainRmRows.length > 0) {
-          user = mainRmRows[0];
-          role = user.role;
-
+        // Password validation
+        if (source.hashCheck) {
+          const isMatch = await bcrypt.compare(password, user.password);
+          if (!isMatch) {
+            return res.status(401).json({ success: false, message: "Invalid credentials" });
+          }
+        } else {
           if (user.password !== password) {
             return res.status(401).json({ success: false, message: "Invalid credentials" });
           }
         }
+
+        break; // Stop once user is found
       }
     }
 
-    // 4. Final check
+    // Final check
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Add role
+    // Add role explicitly
     user.role = role;
 
     // Generate JWT token
     const token = generateToken(user);
 
+    // Cookie options
     const options = {
       expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       httpOnly: true,
@@ -85,11 +71,11 @@ exports.loginUser = async (req, res) => {
       user: {
         id: user.id,
         name: user.name,
-        ck_number: user.ck_number,
-        user_id: user.userid,
+        ck_number: user.ck_number || null,
+        user_id: user.userid || null,
         personal_number: user.personal_number,
-        aoma_stars: user.aoma_stars,
-        activation_stars: user.activation_stars,
+        aoma_stars: user.aoma_stars || 0,
+        activation_stars: user.activation_stars || 0,
         role,
       },
     });
