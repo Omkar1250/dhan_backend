@@ -15,7 +15,7 @@ const app = express();
 
 // CORS Configuration
 app.use(cors({
-    origin: ["http://localhost:3000",  "https://dhan.cyberkingcapitals.com","https://dhan.cyberkingcapitals.com"],
+    origin: ["http://localhost:3000",  "https://dhan.cyberkingcapitals.com","https://www.dhan.cyberkingcapitals.com"],
     credentials: true
 }));
 // Middleware
