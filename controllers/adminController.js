@@ -1694,8 +1694,8 @@ exports.approveLeadAction = async (req, res) => {
 
       await myapp.execute(`UPDATE users SET wallet = wallet + ? WHERE id = ?`, [pointsToCredit, lead.fetched_by]);
       await myapp.execute(
-        `INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)`,
-        [lead.fetched_by, lead.id, 'dhan_code_approved', pointsToCredit]
+        `INSERT INTO wallet_transactions (user_id, lead_id, action,lead_source, points) VALUES (?, ?, ?, ?, ?)`,
+        [lead.fetched_by, lead.id, 'dhan_code_approved','dhanDB', pointsToCredit]
       );
 
       await dhanDB.execute(
