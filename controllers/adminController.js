@@ -485,8 +485,8 @@ exports.approveMsTeamsLoginRequest = async (req, res) => {
 
       // Log wallet transaction
       await myapp.execute(
-        'INSERT INTO wallet_transactions (user_id, lead_id, action, points) VALUES (?, ?, ?, ?)',
-        [lead.fetched_by, lead.id, 'dhan_ms_teams_login_approved', pointsToCredit]
+        'INSERT INTO wallet_transactions (user_id, lead_id, action,lead_source, points) VALUES (?, ?, ?,?, ?)',
+        [lead.fetched_by, lead.id, 'dhan_ms_teams_login_approved','dhanDB', pointsToCredit]
       );
 
       // Update lead status to approved
