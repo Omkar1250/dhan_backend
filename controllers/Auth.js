@@ -421,7 +421,7 @@ exports.createMainRM = async(req, res) => {
     }
 
     // Check if personal_number or userid already exists
-    const [existing] = await dhanDB.execute(
+    const [existing] = await myapp.execute(
       'SELECT * FROM rm WHERE personal_number = ? OR userid = ?',
       [personal_number, userid]
     );
@@ -437,7 +437,7 @@ exports.createMainRM = async(req, res) => {
     const sql = `INSERT INTO rm (name, personal_number, ck_number, userid, password, upi_id, role) 
                  VALUES (?, ?, ?, ?, ?, ?, 'mainRm')`;
 
-    const [result] = await dhanDB.execute(sql, [
+    const [result] = await myapp.execute(sql, [
       name,
       personal_number,
       ck_number,
@@ -465,7 +465,7 @@ exports.mainRmUpdate = async (req, res) => {
     const { name, personal_number, ck_number, userid, password, upi_id } = req.body;
 
     // Check if RM exists
-    const [existing] = await dhanDB.execute('SELECT * FROM rm WHERE id = ? AND role = "mainRm"', [id]);
+    const [existing] = await myapp.execute('SELECT * FROM rm WHERE id = ? AND role = "mainRm"', [id]);
 
     if (existing.length === 0) {
       return res.status(404).json({
@@ -479,7 +479,7 @@ exports.mainRmUpdate = async (req, res) => {
                  SET name = ?, personal_number = ?, ck_number = ?, userid = ?, password = ?, upi_id = ? 
                  WHERE id = ?`;
 
-    await dhanDB.execute(sql, [name, personal_number, ck_number, userid, password, upi_id, id]);
+    await myapp.execute(sql, [name, personal_number, ck_number, userid, password, upi_id, id]);
 
     res.status(200).json({
       success: true,
@@ -501,7 +501,7 @@ exports.mainRmDelete = async (req, res) => {
     const { id } = req.params;
 
     // Check if RM exists
-    const [existing] = await dhanDB.execute('SELECT * FROM rm WHERE id = ? AND role = "rm"', [id]);
+    const [existing] = await myapp.execute('SELECT * FROM rm WHERE id = ? AND role = "rm"', [id]);
 
     if (existing.length === 0) {
       return res.status(404).json({
@@ -530,7 +530,7 @@ exports.mainRmDelete = async (req, res) => {
 
 exports.getAllMainRm = async (req, res) => {
   try {
-    const [rows] = await dhanDB.execute('SELECT id, name, personal_number, ck_number, userid, upi_id, password, created_at FROM rm WHERE role = "mainRm"');
+    const [rows] = await myapp.execute('SELECT id, name, personal_number, ck_number, userid, upi_id, password, created_at FROM rm WHERE role = "mainRm"');
 
     res.status(200).json({
       success: true,
