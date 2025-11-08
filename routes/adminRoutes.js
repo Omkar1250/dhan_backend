@@ -69,4 +69,43 @@ router.post('/sent-old-advance-id-pass/:leadId', auth, isAdmin, adminController.
 router.get('/get-advance-ms-teams-requests', auth, isAdmin, adminController.getUsersAdvanceMSTeamsRequests)
 router.post('/approve-advance-ms-teams-request/:leadId', auth, isAdmin, adminController.approveAdvanceMsTeamsLoginRequest)
 
-module.exports =router  
+
+
+//batch Routes
+router.post('/batches', auth, isAdmin, adminController.createBatch)
+router.get("/batches", auth, adminController.getAllBatchCodes)
+router.get("/all-batches", auth, adminController.getAllBatches)
+router.put("/batch/:id", auth, adminController.updateBatch)
+router.delete("/batch/:id", auth, adminController.deleteBatch)
+
+//new cliens for call routes
+router.get("/new-client/pending", adminController.getPendingNewClientRequests);
+router.post("/new-client/approve/:leadId", adminController.approveOrRejectNewCallRequest);
+
+//pending basic ms teams requests
+router.get("/ms-clients/pending",auth, isAdmin, adminController.getPendingBasicMsTeamsRequests);
+router.post(
+  "/admin/basic-ms/requests/:leadId",
+auth,
+  isAdmin,
+  adminController.approveOrRejectBasicMsRequest
+);
+
+//pending frequest for sip converted
+router.get("/sip-coverted-requests", auth, isAdmin, adminController.getPendingSipConRequests)
+router.post(
+  "/mf/sip-review/:leadId",
+  auth,
+  isAdmin,
+  adminController.approveOrRejectSipStageRequest
+);
+// Approved SIP List + Stats + Batches
+router.get("/mf/sip-approved", auth, isAdmin, adminController.getApprovedSipConRequests);
+router.get("/mf/sip-approved-stats", auth, isAdmin, adminController.getSipApprovedStats);
+router.get("/mf/sip-approved-batches", auth, isAdmin, adminController.getSipApprovedBatches);
+router.get("/rm/dropdown",auth, isAdmin,adminAuthController.getAllMainRmDropdown)
+router.get("/next-rm-preview", auth, isAdmin, adminController.peekNextMainRm);
+
+
+
+module.exports =router

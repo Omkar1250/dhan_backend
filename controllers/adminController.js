@@ -1,5 +1,5 @@
 const { myapp, dhanDB } = require("../config/db");
-
+const { getNextMainRm } = require("../utils/getNextRm");
 
 exports.handleUnderUsApproval = async (req, res) => {
     try {
@@ -31,16 +31,136 @@ exports.handleUnderUsApproval = async (req, res) => {
 
 
 //code approval
+// exports.handleCodeApproval = async (req, res) => {
+//   try {
+//     const {leadId} = req.params
+//     const {  action, batch_code, rm } = req.body;
+
+//     if (!leadId || !['approve', 'reject'].includes(action)) {
+//       return res.status(400).json({ success: false, message: 'Invalid parameters.' });
+//     }
+
+//     // Validate existence of the lead
+//     const [leadResult] = await dhanDB.execute(
+//       'SELECT * FROM leads WHERE id = ? AND code_request_status = "requested"',
+//       [leadId]
+//     );
+
+//     if (leadResult.length === 0) {
+//       return res.status(404).json({ success: false, message: 'Lead not found or not in requested status.' });
+//     }
+
+//     const lead = leadResult[0];
+
+//    if (action === 'approve') {
+//   if (!batch_code || batch_code.trim() === "") {
+//     return res.status(400).json({ success: false, message: 'Batch Code is required for approval.' });
+//   }
+
+//   if (!rm) {
+//     return res.status(400).json({ success: false, message: 'RM ID is required to assign.' });
+//   }
+
+//   // Get conversion points
+//   const [pointResult] = await myapp.execute(
+//     'SELECT points FROM conversion_points WHERE action = "dhan_code_approved"'
+//   );
+//   const pointsToCredit = pointResult[0]?.points || 0;
+
+//   // Credit points to RM wallet
+//   await myapp.execute(
+//     'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+//     [pointsToCredit, lead.fetched_by]
+//   );
+
+//   // Log wallet transaction
+//   await myapp.execute(
+//     'INSERT INTO wallet_transactions (user_id, lead_id, action,lead_source, points) VALUES (?, ?, ?, ?,?)',
+//     [lead.fetched_by, lead.id, 'dhan_code_approved','dhanDB', pointsToCredit]
+//   );
+
+//   // ✅ Update lead status and assign RM
+//   await dhanDB.execute(
+//     `UPDATE leads 
+//      SET 
+//        code_request_status = 'approved',
+//        code_approved_at = NOW(),
+//        batch_code = ?,
+//        sip_request_status = 'pending',
+//        ms_teams_request_status = 'pending',
+//        advance_msteams_details_sent = 'pending',
+//        new_client_request_status = 'pending',
+//        assigned_to = ?  
+//      WHERE id = ?`,
+//     [batch_code, rm, leadId]
+//   );
+   
+
+//   return res.status(200).json({ success: true, message: 'Code Request approved, batch code saved, RM assigned, and points credited.' });
+
+
+//     } else if (action === 'reject') {
+//       await dhanDB.execute(
+//         `UPDATE leads 
+//          SET code_request_status = 'rejected'
+//          WHERE id = ?`,
+//         [leadId]
+//       );
+
+//       return res.status(200).json({ success: true, message: 'Code Request rejected successfully.' });
+//     }
+
+//   } catch (error) {
+//     console.error('Error handling Code Approval:', error);
+//     res.status(500).json({ success: false, message: 'Server error', error: error.message });
+//   }
+// };
+
+exports.peekNextMainRm = async (req, res) => {
+  try {
+
+    // 1️⃣ Try to get next RM (after pointer)
+    let [rm] = await myapp.execute(`
+      SELECT id, name FROM rm 
+      WHERE role='mainRm' AND is_active=1
+        AND id > (SELECT last_assigned_rm_id FROM lead_assign_pointer WHERE id=1)
+      ORDER BY id ASC LIMIT 1;
+    `);
+
+    // 2️⃣ If not found → restart from first RM
+    if (rm.length === 0) {
+      [rm] = await myapp.execute(`
+        SELECT id, name FROM rm 
+        WHERE role='mainRm' AND is_active=1
+        ORDER BY id ASC LIMIT 1;
+      `);
+    }
+
+    // 3️⃣ Return JSON response properly
+    return res.status(200).json({
+      success: true,
+      rm: rm[0] || null
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while fetching next RM",
+      error: error.message
+    });
+  }
+};
+
+//code approval
 exports.handleCodeApproval = async (req, res) => {
   try {
-    const {leadId} = req.params
-    const {  action, batch_code, rm } = req.body;
+    const { leadId } = req.params;
+    const { action, batch_code } = req.body;
 
     if (!leadId || !['approve', 'reject'].includes(action)) {
       return res.status(400).json({ success: false, message: 'Invalid parameters.' });
     }
 
-    // Validate existence of the lead
     const [leadResult] = await dhanDB.execute(
       'SELECT * FROM leads WHERE id = ? AND code_request_status = "requested"',
       [leadId]
@@ -52,66 +172,176 @@ exports.handleCodeApproval = async (req, res) => {
 
     const lead = leadResult[0];
 
-   if (action === 'approve') {
-  if (!batch_code || batch_code.trim() === "") {
-    return res.status(400).json({ success: false, message: 'Batch Code is required for approval.' });
-  }
+    if (action === 'approve') {
 
-  if (!rm) {
-    return res.status(400).json({ success: false, message: 'RM ID is required to assign.' });
-  }
+      if (!batch_code || batch_code.trim() === "") {
+        return res.status(400).json({ success: false, message: 'Batch Code is required.' });
+      }
 
-  // Get conversion points
-  const [pointResult] = await myapp.execute(
-    'SELECT points FROM conversion_points WHERE action = "dhan_code_approved"'
-  );
-  const pointsToCredit = pointResult[0]?.points || 0;
+      // ✅ AUTO ROUND ROBIN RM SELECT
+      const rmId = await getNextMainRm();
 
-  // Credit points to RM wallet
-  await myapp.execute(
-    'UPDATE users SET wallet = wallet + ? WHERE id = ?',
-    [pointsToCredit, lead.fetched_by]
-  );
+      // ✅ CREDIT POINTS
+      const [pointResult] = await myapp.execute(
+        'SELECT points FROM conversion_points WHERE action = "dhan_code_approved"'
+      );
+      const pointsToCredit = pointResult[0]?.points || 0;
 
-  // Log wallet transaction
-  await myapp.execute(
-    'INSERT INTO wallet_transactions (user_id, lead_id, action,lead_source, points) VALUES (?, ?, ?, ?,?)',
-    [lead.fetched_by, lead.id, 'dhan_code_approved','dhanDB', pointsToCredit]
-  );
+      await myapp.execute(
+        'UPDATE users SET wallet = wallet + ? WHERE id = ?',
+        [pointsToCredit, lead.fetched_by]
+      );
+ // Log wallet transaction
+   await myapp.execute(
+     'INSERT INTO wallet_transactions (user_id, lead_id, action,lead_source, points) VALUES (?, ?, ?, ?,?)',
+     [lead.fetched_by, lead.id, 'dhan_code_approved','dhanDB', pointsToCredit]
+   );
 
-  // ✅ Update lead status and assign RM
-  await dhanDB.execute(
-    `UPDATE leads 
-     SET 
-       code_request_status = 'approved',
-       code_approved_at = NOW(),
-       batch_code = ?,
-       sip_request_status = 'pending',
-       ms_teams_request_status = 'pending',
-       advance_msteams_details_sent = 'pending',
-       assigned_to = ?  
-     WHERE id = ?`,
-    [batch_code, rm, leadId]
-  );
-   
-
-  return res.status(200).json({ success: true, message: 'Code Request approved, batch code saved, RM assigned, and points credited.' });
-
-
-    } else if (action === 'reject') {
+      // ✅ ASSIGN RM
       await dhanDB.execute(
         `UPDATE leads 
-         SET code_request_status = 'rejected'
+         SET 
+           code_request_status = 'approved',
+           code_approved_at = NOW(),
+           batch_code = ?,
+           sip_request_status = 'pending',
+           ms_teams_request_status = 'pending',
+           advance_msteams_details_sent = 'pending',
+           new_client_request_status = 'pending',
+           assigned_to = ?  
          WHERE id = ?`,
-        [leadId]
+        [batch_code, rmId, leadId]
       );
 
-      return res.status(200).json({ success: true, message: 'Code Request rejected successfully.' });
+      return res.status(200).json({ 
+        success: true, 
+        message: `Approved & Assigned to RM ID: ${rmId}`, 
+        assigned_rm_id: rmId 
+      });
+    }
+
+    if (action === 'reject') {
+      await dhanDB.execute(
+        `UPDATE leads SET code_request_status = 'rejected' WHERE id = ?`,
+        [leadId]
+      );
+      return res.status(200).json({ success: true, message: 'Request rejected successfully.' });
     }
 
   } catch (error) {
-    console.error('Error handling Code Approval:', error);
+    console.error('Error:', error);
     res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+
+
+
+//Bateches
+exports.getAllBatchCodes = async (req, res) => {
+  try {
+    const [batches] = await dhanDB.execute(
+      'SELECT id, batch_code FROM batches WHERE status = "active" ORDER BY id DESC'
+    );
+    res.status(200).json({ success: true, data: batches });
+  } catch (error) {
+    console.error('Error fetching batch codes:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+
+//create batch
+exports.createBatch = async (req, res) => {
+  try {
+    const { batch_code, description, status } = req.body;
+
+    // ✅ Validation
+    if (!batch_code || batch_code.trim() === "") {
+      return res.status(400).json({ success: false, message: "Batch code is required." });
+    }
+
+    // ✅ Check if batch code already exists
+    const [existingBatch] = await dhanDB.execute(
+      "SELECT id FROM batches WHERE batch_code = ?",
+      [batch_code]
+    );
+
+    if (existingBatch.length > 0) {
+      return res.status(400).json({ success: false, message: "Batch code already exists." });
+    }
+
+    // ✅ Insert new batch
+    await dhanDB.execute(
+      "INSERT INTO batches (batch_code, description, status) VALUES (?, ?, ?)",
+      [batch_code, description || null, status || "active"]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Batch created successfully.",
+    });
+  } catch (error) {
+    console.error("Error creating batch:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while creating batch.",
+      error: error.message,
+    });
+  }
+};
+
+exports.getAllBatches = async (req, res) => {
+  try {
+    const [rows] = await dhanDB.execute("SELECT * FROM batches ORDER BY id DESC");
+    res.status(200).json({ success: true, batches: rows });
+  } catch (error) {
+    console.error("Error fetching batches:", error);
+    res.status(500).json({ success: false, message: "Server error while fetching batches." });
+  }
+};
+
+exports.updateBatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { batch_code, description, status } = req.body;
+
+    if (!batch_code || batch_code.trim() === "") {
+      return res.status(400).json({ success: false, message: "Batch code is required." });
+    }
+
+    // Check if another batch exists with same code
+    const [existing] = await dhanDB.execute(
+      "SELECT id FROM batches WHERE batch_code = ? AND id != ?",
+      [batch_code, id]
+    );
+
+    if (existing.length > 0) {
+      return res.status(400).json({ success: false, message: "Batch code already exists." });
+    }
+
+    await dhanDB.execute(
+      "UPDATE batches SET batch_code = ?, description = ?, status = ? WHERE id = ?",
+      [batch_code, description || null, status, id]
+    );
+
+    res.status(200).json({ success: true, message: "Batch updated successfully." });
+  } catch (error) {
+    console.error("Error updating batch:", error);
+    res.status(500).json({ success: false, message: "Server error while updating batch." });
+  }
+}; 
+
+exports.deleteBatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await dhanDB.execute("DELETE FROM batches WHERE id = ?", [id]);
+
+    res.status(200).json({ success: true, message: "Batch deleted successfully." });
+  } catch (error) {
+    console.error("Error deleting batch:", error);
+    res.status(500).json({ success: false, message: "Server error while deleting batch." });
   }
 };
 
@@ -1620,8 +1850,7 @@ exports.approveLeadAction = async (req, res) => {
   const { leadId } = req.params;
   const { action } = req.body;
   const {batch_code} = req.body;
-  const {rmId} =req.body;
-
+  
   const validActions = {
     under_us: { column: "under_us_status", date: "under_us_approved_at" },
     code_request: { column: "code_request_status", date: "code_approved_at" },
@@ -1689,6 +1918,9 @@ exports.approveLeadAction = async (req, res) => {
 
     // ✅ Code Request Approval
     if (action === "code_request") {
+      if (!batch_code) return res.status(400).json({ message: "Batch code required" });
+
+      const assignedRmId = await getNextMainRm();
       const [pointResult] = await myapp.execute(`SELECT points FROM conversion_points WHERE action = "dhan_code_approved"`);
       const pointsToCredit = pointResult[0]?.points || 0;
 
@@ -1698,9 +1930,9 @@ exports.approveLeadAction = async (req, res) => {
         [lead.fetched_by, lead.id, 'dhan_code_approved','dhanDB', pointsToCredit]
       );
 
-      await dhanDB.execute(
-        `UPDATE leads SET code_request_status = 'approved', code_approved_at = NOW(), batch_code = ?,assigned_to = ?, sip_request_status = 'pending', ms_teams_request_status = 'pending', advance_msteams_details_sent='pending' WHERE id = ?`,
-        [batch_code,rmId, leadId]
+        await dhanDB.execute(
+        `UPDATE leads SET code_request_status = 'approved', code_approved_at = NOW(), batch_code = ?,assigned_to = ?, sip_request_status = 'pending', ms_teams_request_status = 'pending',new_client_request_status = 'pending', advance_msteams_details_sent='pending' WHERE id = ?`,
+        [batch_code,assignedRmId, leadId]
       );
 
       return res.status(200).json({ success: true, message: 'Code request approved, points credited.' });
@@ -2801,5 +3033,717 @@ exports.approveAdvanceMsTeamsLoginRequest = async (req, res) => {
       success: false,
       message: 'Server error while processing MS Teams Login request.',
     });
+  }
+};
+
+
+//new client for call
+// ✅ Get all leads pending approval
+exports.getPendingNewClientRequests = async (req, res) => {
+  try {
+    // 📄 Pagination setup
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+
+    // 🔍 Filters
+    const search = req.query.search ? req.query.search.trim().toLowerCase() : "";
+    const batch = req.query.batch || "";
+
+    // 🧩 Base WHERE clause
+    let whereClause = `
+      WHERE 
+        leads.new_client_approval_status = 'pending' 
+        AND leads.new_client_action_status = 'sent' 
+        AND leads.new_client_request_status = 'requested'
+        AND leads.code_request_status = 'approved'
+    `;
+
+    const queryParams = [];
+
+    // 🧾 Optional batch filter
+    if (batch) {
+      whereClause += ` AND leads.batch_code = ?`;
+      queryParams.push(batch);
+    }
+
+    // 🔍 Optional search filter
+    if (search) {
+      whereClause += `
+        AND (
+          LOWER(leads.name) LIKE ? 
+          OR LOWER(leads.mobile_number) LIKE ? 
+          OR LOWER(leads.batch_code) LIKE ?
+          OR CAST(leads.id AS CHAR) LIKE ?
+        )
+      `;
+      const keyword = `%${search}%`;
+      queryParams.push(keyword, keyword, keyword, keyword);
+    }
+
+    // 📊 Count total rows
+    const [countResult] = await dhanDB.execute(
+      `SELECT COUNT(*) AS total FROM leads ${whereClause}`,
+      queryParams
+    );
+    const total = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(total / limit);
+
+    // 📦 Fetch paginated data (curly braces for limit and offset)
+    const [rows] = await dhanDB.query(
+  `
+  SELECT 
+    leads.id,
+    leads.name,
+    leads.batch_code,
+    leads.mobile_number,
+    leads.whatsapp_mobile_number,
+    leads.new_client_call_status,
+    leads.new_client_call_screenshot,
+    leads.new_client_request_status,
+    leads.new_client_approval_status,
+    leads.new_client_action_status,
+    leads.new_client_requested_at,
+    users.name AS rm_name
+  FROM leads
+  LEFT JOIN users ON leads.assigned_to = users.id
+  ${whereClause}
+  ORDER BY leads.id DESC
+  LIMIT ${dhanDB.escape(limit)} OFFSET ${dhanDB.escape(offset)}
+  `,
+  queryParams
+);
+
+    // ✅ Success response
+    return res.status(200).json({
+      success: true,
+      message: "Pending new client requests fetched successfully.",
+      data: rows,
+      total,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching pending new client requests:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching pending new client requests.",
+      error: error.message,
+    });
+  }
+};
+
+exports.approveOrRejectNewCallRequest = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { action } = req.body;
+
+    // ✅ Validate input parameters
+    if (!leadId || !["approve", "reject"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Invalid parameters. Action must be either "approve" or "reject".',
+      });
+    }
+
+    // ✅ Check if lead exists and is still in requested state
+    const [leadResult] = await dhanDB.execute(
+      `SELECT * FROM leads WHERE id = ? AND new_client_request_status = 'requested'`,
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found or not in requested status.",
+      });
+    }
+
+    // ✅ Process Approval
+    if (action === "approve") {
+      await dhanDB.execute(
+        `UPDATE leads 
+         SET 
+           new_client_approval_status = 'approved',
+           new_client_action_status = 'pending',
+           new_client_request_status = 'approved'
+         WHERE id = ?`,
+        [leadId]
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "New client call request approved successfully.",
+      });
+    }
+
+    // ✅ Process Rejection
+    if (action === "reject") {
+      await dhanDB.execute(
+        `UPDATE leads 
+         SET 
+           new_client_approval_status = 'rejected',
+           new_client_action_status = 'rejected'
+         WHERE id = ?`,
+        [leadId]
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "New client call request rejected successfully.",
+      });
+    }
+  } catch (error) {
+    console.error("❌ Error handling new client call request:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while handling client call request.",
+      error: error.message,
+    });
+  }
+};
+
+
+exports.getPendingBasicMsTeamsRequests = async (req, res) => {
+  try {
+    // 📄 Pagination setup
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+
+    // 🔍 Filters
+    const search = req.query.search ? req.query.search.trim().toLowerCase() : "";
+    const batch = req.query.batch || "";
+
+    // 🧩 Base WHERE clause
+    let whereClause = `
+      WHERE 
+        leads.new_client_basic_ms_approval_status = 'pending' 
+        AND leads.new_client_basic_ms_action_status = 'sent' 
+        AND leads.new_client_basic_ms_request_status = 'requested'
+    `;
+
+    const queryParams = [];
+
+    // 🧾 Optional batch filter
+    if (batch) {
+      whereClause += ` AND leads.batch_code = ?`;
+      queryParams.push(batch);
+    }
+
+    // 🔍 Optional search filter
+    if (search) {
+      whereClause += `
+        AND (
+          LOWER(leads.name) LIKE ? 
+          OR LOWER(leads.mobile_number) LIKE ? 
+          OR LOWER(leads.batch_code) LIKE ?
+          OR CAST(leads.id AS CHAR) LIKE ?
+        )
+      `;
+      const keyword = `%${search}%`;
+      queryParams.push(keyword, keyword, keyword, keyword);
+    }
+
+    // 📊 Count total rows
+    const [countResult] = await dhanDB.execute(
+      `SELECT COUNT(*) AS total FROM leads ${whereClause}`,
+      queryParams
+    );
+    const total = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(total / limit);
+
+    // 📦 Fetch paginated data (curly braces for limit and offset)
+    const [rows] = await dhanDB.query(
+      `
+      SELECT 
+        leads.id,
+        leads.name,
+        leads.batch_code,
+        leads.mobile_number,
+        leads.whatsapp_mobile_number,
+        leads.new_client_basic_ms_status,
+        leads.new_client_basic_ms_screenshot,
+        leads.new_client_basic_ms_request_status,
+        leads.new_client_basic_ms_approval_status,
+        leads.new_client_basic_ms_action_status,
+        users.name AS rm_name
+      FROM leads
+      LEFT JOIN users ON leads.assigned_to = users.id
+      ${whereClause}
+      ORDER BY leads.id DESC
+      LIMIT ${dhanDB.escape(limit)} OFFSET ${dhanDB.escape(offset)}
+      `,
+      queryParams
+    );
+
+    // ✅ Success response
+    return res.status(200).json({
+      success: true,
+      message: "Pending Basic MS Teams requests fetched successfully.",
+      data: rows,
+      total,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching Basic MS Teams requests:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching Basic MS Teams requests.",
+      error: error.message,
+    });
+  }
+};
+
+exports.approveOrRejectBasicMsRequest = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { action } = req.body;
+
+    // ✅ Validate input
+    if (!leadId || !["approve", "reject"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid parameters. Action must be either "approve" or "reject".',
+      });
+    }
+
+    // ✅ Check lead exists and is in requested state
+    const [leadResult] = await dhanDB.execute(
+      `SELECT id FROM leads 
+       WHERE id = ? 
+       AND new_client_basic_ms_request_status = 'requested'
+       AND new_client_basic_ms_action_status = 'sent'
+      `, 
+      [leadId]
+    );
+
+    if (leadResult.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found OR request not in requested state.",
+      });
+    }
+
+    // ✅ Approve Flow
+    if (action === "approve") {
+      await dhanDB.execute(
+        `UPDATE leads 
+         SET 
+           new_client_basic_ms_approval_status = 'approved',
+           new_client_basic_ms_action_status = 'sent',
+           new_client_basic_ms_request_status = 'approved'
+         WHERE id = ?`,
+        [leadId]
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Basic MS Teams request approved successfully.",
+      });
+    }
+
+    // ✅ Reject Flow
+    if (action === "reject") {
+      await dhanDB.execute(
+        `UPDATE leads 
+         SET 
+           new_client_basic_ms_approval_status = 'rejected',
+           new_client_basic_ms_action_status = 'rejected',
+           new_client_basic_ms_request_status = NULL
+         WHERE id = ?`,
+        [leadId]
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Basic MS Teams request rejected successfully.",
+      });
+    }
+  } catch (error) {
+    console.error("❌ Error approving/rejecting Basic MS request:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while processing request.",
+      error: error.message,
+    });
+  }
+};
+
+
+// PATCH /mf/admin/stage-review
+// body: { leadId, stage, action, reason? }
+
+
+
+// GET /mf/admin/pending-requests
+// ✅ Valid stages
+const VALID_STAGE = new Set(['session4', 'session19', 'batchEnd', 'monthly']);
+
+// ✅ Stage to column mapping (must match your DB columns)
+const approvalColumns = `
+  approval_session_4='pending' OR
+  approval_session_19='pending' OR
+  approval_batch_end='pending' OR
+  approval_monthly='pending'
+`;
+
+const statusColumns = `
+  rm_mf_status_session_4='sip_done_converted' OR
+  rm_mf_status_session_19='sip_done_converted' OR
+  rm_mf_status_batch_end='sip_done_converted' OR
+  rm_mf_status_monthly='sip_done_converted'
+`;
+
+const where = `
+  WHERE code_request_status='approved'
+  AND (${approvalColumns})
+  AND (${statusColumns})
+`;
+
+
+
+
+exports.getPendingSipConRequests = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+
+    // Build pending approval OR conditions
+    const approvalColumns = `
+      approval_session_4='pending' OR
+      approval_session_19='pending' OR
+      approval_batch_end='pending' OR
+      approval_monthly='pending'
+    `;
+
+    // Build SIP done OR conditions
+    const statusColumns = `
+      rm_mf_status_session_4='sip_done_converted' OR
+      rm_mf_status_session_19='sip_done_converted' OR
+      rm_mf_status_batch_end='sip_done_converted' OR
+      rm_mf_status_monthly='sip_done_converted'
+    `;
+
+    const where = `
+      WHERE code_request_status='approved'
+      AND (${approvalColumns})
+      AND (${statusColumns})
+    `;
+
+    // Total count
+    const [[{ total }]] = await dhanDB.execute(
+      `SELECT COUNT(*) as total FROM leads ${where}`
+    );
+
+    // Fetch data
+    const [rows] = await dhanDB.execute(
+      `SELECT id, name, mobile_number, whatsapp_mobile_number, batch_code,
+              rm_mf_status_session_4, rm_mf_status_session_19, rm_mf_status_batch_end, rm_mf_status_monthly,
+              approval_session_4, approval_session_19, approval_batch_end, approval_monthly,
+              screenshot_session_4, screenshot_session_19, screenshot_batch_end, screenshot_monthly
+       FROM leads
+       ${where}
+       ORDER BY id DESC
+       LIMIT ${dhanDB.escape(limit)} OFFSET ${dhanDB.escape(offset)}
+      `,
+    );
+
+    return res.json({
+      success: true,
+      message: "Pending SIP approval requests fetched",
+      pendingRequests: rows,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      perPage: limit,
+    });
+
+  } catch (err) {
+    console.error("getPendingSipRequests error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+
+// STAGE MAP MUST MATCH YOUR DB STRUCTURE
+const STAGE_MAP = {
+  session4: {
+    statusCol: "rm_mf_status_session_4",
+    approvalCol: "approval_session_4",
+    screenshotCol: "screenshot_session_4",
+  },
+  session19: {
+    statusCol: "rm_mf_status_session_19",
+    approvalCol: "approval_session_19",
+    screenshotCol: "screenshot_session_19",
+  },
+  batchEnd: {
+    statusCol: "rm_mf_status_batch_end",
+    approvalCol: "approval_batch_end",
+    screenshotCol: "screenshot_batch_end",
+  },
+  monthly: {
+    statusCol: "rm_mf_status_monthly",
+    approvalCol: "approval_monthly",
+    screenshotCol: "screenshot_monthly",
+  },
+};
+
+
+
+
+// ✅ PATCH /api/admin/mf/sip-review/:leadId
+exports.approveOrRejectSipStageRequest = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    const { leadId } = req.params;
+    const { stage, action } = req.body;
+
+    // 🔹 Validate
+    if (!leadId || !stage || !action) {
+      return res.status(400).json({
+        success: false,
+        message: "leadId, stage and action are required.",
+      });
+    }
+
+    if (!VALID_STAGE.has(stage)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid stage.",
+      });
+    }
+
+    if (!["approve", "reject"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Action must be either "approve" or "reject".',
+      });
+    }
+
+    // ✅ Extract DB columns for this stage
+    const { statusCol, approvalCol } = STAGE_MAP[stage];
+
+    // ✅ Select the lead's stage record
+    const [[lead]] = await dhanDB.execute(
+      `SELECT ${statusCol} as stageStatus, ${approvalCol} as stageApproval FROM leads WHERE id=?`,
+      [leadId]
+    );
+
+    if (!lead) {
+      return res.status(404).json({ success: false, message: "Lead not found." });
+    }
+
+    if (lead.stageApproval !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "This stage is not in a pending approval state.",
+      });
+    }
+
+    // ✅ APPROVE FLOW
+    if (action === "approve") {
+      await dhanDB.execute(
+        `UPDATE leads
+         SET ${approvalCol}='approved'
+         WHERE id=?`,
+        [ leadId]
+      );
+
+      // If SIP conversion, mark final approval as well
+      if (lead.stageStatus === "sip_done_converted") {
+        await dhanDB.execute(
+          `UPDATE leads SET final_sip_approved='yes' WHERE id=?`,
+          [leadId]
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "SIP approval granted successfully.",
+      });
+    }
+
+    // ✅ REJECT FLOW
+    if (action === "reject") {
+      await dhanDB.execute(
+        `UPDATE leads
+         SET ${approvalCol}='rejected'
+         WHERE id=?`,
+        [leadId]
+      );
+
+      return res.json({
+        success: true,
+        message: "SIP request rejected successfully.",
+      });
+    }
+  } catch (err) {
+    console.error("approveOrRejectSipStageRequest error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
+// ====== Approved SIP: List, Stats, Batches ======
+
+/**
+ * GET /api/admin/mf/sip-approved
+ * Query: page, limit, search, batch_code, rm_id
+ */
+exports.getApprovedSipConRequests = async (req, res) => {
+  try {
+    const page  = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+
+    const search = (req.query.search || '').trim().toLowerCase();
+    const batchCode = (req.query.batch_code || '').trim();
+    const rmId = req.query.rm_id ? parseInt(req.query.rm_id, 10) : null;
+
+    let where = `
+      WHERE l.code_request_status='approved'
+      AND l.final_sip_approved='yes'
+    `;
+    const params = [];
+
+    if (batchCode) {
+      where += ` AND l.batch_code = ? `;
+      params.push(batchCode);
+    }
+
+    if (rmId) {
+      where += ` AND l.assigned_to = ? `;
+      params.push(rmId);
+    }
+
+    if (search) {
+      const kw = `%${search}%`;
+      where += ` AND (LOWER(l.name) LIKE ? OR l.mobile_number LIKE ? OR l.whatsapp_mobile_number LIKE ? OR l.batch_code LIKE ?) `;
+      params.push(kw, kw, kw, kw);
+    }
+
+    // Count
+    const [[{ total }]] = await dhanDB.execute(
+      `SELECT COUNT(*) AS total
+       FROM leads l
+       LEFT JOIN users u ON u.id = l.assigned_to
+       ${where}`,
+      params
+    );
+
+    // Data
+    const [rows] = await dhanDB.execute(
+      `SELECT l.id, l.name, l.mobile_number, l.whatsapp_mobile_number,
+              l.batch_code, l.created_at,
+              l.rm_mf_status_session_4, l.rm_mf_status_session_19, l.rm_mf_status_batch_end, l.rm_mf_status_monthly,
+              l.approval_session_4, l.approval_session_19, l.approval_batch_end, l.approval_monthly,
+              l.screenshot_session_4, l.screenshot_session_19, l.screenshot_batch_end, l.screenshot_monthly,
+              l.final_sip_approved,
+              l.assigned_to AS rm_id, u.name AS rm_name
+       FROM leads l
+       LEFT JOIN users u ON u.id = l.assigned_to
+       ${where}
+       ORDER BY  l.id DESC
+       LIMIT ${db.escape(limit)} OFFSET ${db.escape(offset)}`,
+      [...params]
+    );
+
+    return res.json({
+      success: true, 
+      message: "Approved SIP list fetched",
+      approvedRequests: rows,
+      total: total || 0,
+      totalPages: Math.max(1, Math.ceil((total || 0) / limit)),
+      currentPage: page,
+      perPage: limit,
+    });
+
+  } catch (err) {
+    console.error("getApprovedSipConRequests error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+/**
+ * GET /api/admin/mf/sip-approved-stats
+ * Query: batch_code (optional)
+ * Returns RM-wise counts of final approved SIPs
+ */
+exports.getSipApprovedStats = async (req, res) => {
+  try {
+    const batchCode = (req.query.batch_code || '').trim();
+
+    let where = `
+      WHERE l.code_request_status='approved'
+      AND l.final_sip_approved='yes'
+    `;
+    const params = [];
+
+    if (batchCode) {
+      where += ` AND l.batch_code = ? `;
+      params.push(batchCode);
+    }
+
+    const [rows] = await dhanDB.execute(
+      `SELECT l.assigned_to AS rm_id, COALESCE(u.name, 'Unknown') AS rm_name, COUNT(*) AS converted
+       FROM leads l
+       LEFT JOIN users u ON u.id = l.assigned_to
+       ${where}
+       GROUP BY l.assigned_to, u.name
+       ORDER BY converted DESC`,
+      params
+    );
+
+    const totalConverted = rows.reduce((acc, r) => acc + Number(r.converted || 0), 0);
+
+    return res.json({
+      success: true,
+      message: "RM-wise approved SIP stats",
+      stats: rows,
+      totalConverted,
+    });
+
+  } catch (err) {
+    console.error("getSipApprovedStats error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+/**
+ * GET /api/admin/mf/sip-approved-batches
+ * Returns distinct batch codes with final approved SIPs
+ */
+exports.getSipApprovedBatches = async (req, res) => {
+  try {
+    const [rows] = await dhanDB.execute(
+      `SELECT DISTINCT batch_code
+       FROM leads
+       WHERE code_request_status='approved'
+         AND final_sip_approved='yes'
+         AND batch_code IS NOT NULL
+       ORDER BY batch_code ASC`
+    );
+
+    return res.json({
+      success: true,
+      message: "Approved SIP batches fetched",
+      batches: rows.map(r => r.batch_code),
+    });
+
+  } catch (err) {
+    console.error("getSipApprovedBatches error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };

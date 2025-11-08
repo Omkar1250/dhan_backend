@@ -124,6 +124,32 @@ router.get('/get-all-mf-clients', auth, leadController.mfClients)
 router.post('/mark-mf-call-done/:leadId', auth, leadController.mFCallDone)
 
 
+//new client call routes
+router.post(
+  "/new-client-call-update",
+  auth, 
+  upload.single("screenshot"),  // <-- your shared multer middleware
+  leadController.submitLeadUpdateForApproval
+);
+
+//basic ms teams
+router.post(
+  "/submit-basic-ms-teams-update",
+  auth,
+  upload.single("screenshot"),
+  leadController.submitBasicMsTeamsUpdate
+);
+
+router.post(
+  "/submit-mf-lead-status",
+  auth,
+  upload.single("screenshot"),
+  leadController.submitLeadSipConApproval
+);
+
+
+
+
 
 
 

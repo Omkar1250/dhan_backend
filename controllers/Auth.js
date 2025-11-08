@@ -18,7 +18,7 @@ exports.loginUser = async (req, res) => {
     const sources = [
       { db: myapp, table: "admins", isAdmin: true, hashCheck: true },
       { db: myapp, table: "users", isAdmin: false, hashCheck: false }, // plaintext? switch to true if hashed
-      { db: dhanDB, table: "rm", isAdmin: false, hashCheck: false },   // plaintext? switch to true if hashed
+      { db: myapp, table: "rm", isAdmin: false, hashCheck: false },   // plaintext? switch to true if hashed
     ];
 
     for (const source of sources) {
@@ -82,6 +82,29 @@ exports.loginUser = async (req, res) => {
   } catch (error) {
     console.error("Login error:", error);
     res.status(500).json({ success: false, message: "Login failed" });
+  }
+};
+
+exports.getAllMainRmDropdown = async (req, res) => {
+  try {
+    const [rows] = await myapp.execute(`
+      SELECT id, name, userid, is_active 
+      FROM rm 
+      WHERE role = "mainRm"
+      ORDER BY id ASC
+    `);
+
+    res.status(200).json({
+      success: true,
+      totalRms: rows.length,
+      rms: rows
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 

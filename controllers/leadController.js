@@ -1,5 +1,9 @@
 const { myapp, dhanDB } = require("../config/db");
 const fs = require("fs");
+const path = require("path");
+
+const { STAGE_MAP, VALID_STAGE, VALID_STATUS } = require("../utils/mfColumns");
+
 
 // Fetch leads for RM
 // exports.fetchLeads = async (req, res) => {
@@ -1580,58 +1584,72 @@ exports.oldBatchMsTeamsAllClientsList = async (req, res) => {
 };
 
 
-//New Clients for call after basic_ms details send
+// New Clients for call (segregated by Action Pending / Actionable / Req Sent, with Batch Filter)
 exports.NewMsClientsForCallList = async (req, res) => {
   try {
     const rmId = req.user.id;
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
-    const search = req.query.search || ""; // Search query for filtering leads
 
-    // Base query components
-    const baseQuery = `FROM leads`;  //AND new_clinet_call_status IS NULL
-      let whereClause = `
-        WHERE assigned_to = ? 
-        AND code_request_status = 'approved' 
-        AND new_clinet_call_status IS NULL
-        
-      `;
+    const search = req.query.search || "";
+    const actionStatus = req.query.status || "pending"; // (pending, rejected, sent)
+    const batch = req.query.batch || ""; // 👈 optional batch filter from frontend dropdown
 
-      const queryParams = [rmId];
+    // Base WHERE clause
+    let whereClause = `
+      WHERE assigned_to = ? 
+      AND code_request_status = 'approved' 
+      AND new_client_action_status = ?
+    `;
 
+    const queryParams = [rmId, actionStatus];
 
-    // Add search conditions if a search query is provided
+    // ✅ Optional batch filter
+    if (batch) {
+      whereClause += ` AND batch_code = ? `;
+      queryParams.push(batch);
+    }
+
+    // ✅ Optional search filter
     if (search) {
-      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
+      whereClause += `
+        AND (LOWER(name) LIKE ? 
+        OR LOWER(mobile_number) LIKE ? 
+        OR CAST(id AS CHAR) LIKE ?)
+      `;
       const keyword = `%${search.toLowerCase()}%`;
       queryParams.push(keyword, keyword, keyword);
     }
 
-    // Count query to get total MS Teams or SIP approved leads
+    // ✅ Count total results
     const [totalResult] = await dhanDB.execute(
-      `SELECT COUNT(*) as total ${baseQuery}${whereClause}`,
+      `SELECT COUNT(*) AS total FROM leads ${whereClause}`,
       queryParams
     );
+
     const totalNewClientForCall = totalResult[0]?.total || 0;
     const totalPages = Math.ceil(totalNewClientForCall / limit);
 
-    // Fetch query to get paginated MS Teams or SIP approved leads
-    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY code_approved_at DESC LIMIT ${limit} OFFSET ${offset}`;
-    const [newClientForCall] = await dhanDB.execute(fetchQuery, queryParams);
+    // ✅ Fetch paginated leads
+    const [newClientForCall] = await dhanDB.execute(
+      `SELECT * FROM leads ${whereClause} 
+       ORDER BY code_approved_at DESC 
+       LIMIT ${limit} OFFSET ${offset}`,
+      queryParams
+    );
 
-    // If no approved leads are found, return a 404 response
+    // ✅ Handle empty results
     if (newClientForCall.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "No Clients Found",
+        message: "No clients found for this category",
       });
     }
 
-    // Return a successful response with approved leads data
     return res.status(200).json({
       success: true,
-      message: "New Client For Call Fetch Successfully.",
+      message: "New Clients fetched successfully.",
       newClientForCall,
       totalNewClientForCall,
       totalPages,
@@ -1639,8 +1657,7 @@ exports.NewMsClientsForCallList = async (req, res) => {
       perPage: limit,
     });
   } catch (error) {
-    console.error("Error fetching new clients for call:", error);
-    // Handle unexpected errors and return a 500 response
+    console.error("❌ Error fetching new clients for call:", error);
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -1857,40 +1874,50 @@ exports.jrmBasicMsTeamsClients = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
-    const search = req.query.search || ""; // Search query for filtering leads
 
-    // Base query components
+    const search = req.query.search || "";
+    const batch = req.query.batch || "";
+
     const baseQuery = `FROM leads`;
-      let whereClause = `
-        WHERE assigned_to = ? 
-        AND code_request_status = 'approved' 
-        AND ms_details_sent  = 'approved'
-        AND jrm_lead_basic_call_connect IS NULL
-      `;
+    let whereClause = `
+      WHERE assigned_to = ?
+      AND code_request_status = 'approved'
+      AND ms_details_sent = 'approved'
+    `;
 
-      const queryParams = [rmId];
+    const queryParams = [rmId];
 
+    // ✅ Batch Filter
+    if (batch) {
+      whereClause += ` AND batch_code = ?`;
+      queryParams.push(batch);
+    }
 
-    // Add search conditions if a search query is provided
+    // ✅ Search Filter
     if (search) {
       whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
       const keyword = `%${search.toLowerCase()}%`;
       queryParams.push(keyword, keyword, keyword);
     }
 
-    // Count query to get total MS Teams or SIP approved leads
+    // ✅ Count total
     const [totalResult] = await dhanDB.execute(
-      `SELECT COUNT(*) as total ${baseQuery}${whereClause}`,
+      `SELECT COUNT(*) as total ${baseQuery} ${whereClause}`,
       queryParams
     );
     const TotalrmBasicMsTeamsClients = totalResult[0]?.total || 0;
     const totalPages = Math.ceil(TotalrmBasicMsTeamsClients / limit);
 
-    // Fetch query to get paginated MS Teams or SIP approved leads
-    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY code_approved_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    // ✅ Fetch leads (pagination)
+    const fetchQuery = `
+      SELECT * 
+      ${baseQuery} 
+      ${whereClause}
+      ORDER BY code_approved_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
     const [rmBasicMsTeamsClients] = await dhanDB.execute(fetchQuery, queryParams);
 
-    // If no approved leads are found, return a 404 response
     if (rmBasicMsTeamsClients.length === 0) {
       return res.status(404).json({
         success: false,
@@ -1898,7 +1925,6 @@ exports.jrmBasicMsTeamsClients = async (req, res) => {
       });
     }
 
-    // Return a successful response with approved leads data
     return res.status(200).json({
       success: true,
       message: "Basic Ms-Teams leads fetched successfully.",
@@ -1908,16 +1934,16 @@ exports.jrmBasicMsTeamsClients = async (req, res) => {
       currentPage: page,
       perPage: limit,
     });
+
   } catch (error) {
-    console.error("Error fetching Basic Ms-Teams  leads:", error);
-    // Handle unexpected errors and return a 500 response
+    console.error("Error fetching Basic Ms-Teams leads:", error);
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
       error: error.message,
     });
   }
-};
+};;
 
 //New Advance Ms Teams Clients 
 exports.rmAdvanceMsTeamsClients = async (req, res) => {
@@ -2534,5 +2560,383 @@ exports.mFCallDone = async (req, res) => {
   } catch (error) {
     console.error('Error handling Request:', error);
     res.status(500).json({ success: false, message: 'Server error while processing request.', error: error.message });
+  }
+};
+
+
+//new client call for approval
+exports.submitLeadUpdateForApproval = async (req, res) => {
+  try {
+    const rmId = req.user.id;
+    const { leadId, call_status } = req.body;
+    const screenshotPath = req.file ? req.file.path.replace(/\\/g, "/") : null;
+
+    // 🔹 Validate inputs
+    if (!leadId || !call_status) {
+      return res.status(400).json({
+        success: false,
+        message: "Lead ID and Call Status are required.",
+      });
+    }
+
+    if (!screenshotPath) {
+      return res.status(400).json({
+        success: false,
+        message: "Screenshot is required.",
+      });
+    }
+ 
+    // 🔹 Check if the lead belongs to the RM
+    const [leadCheck] = await dhanDB.execute(
+      `SELECT * FROM leads WHERE id = ? AND assigned_to = ? AND code_request_status = 'approved'`,
+      [leadId, rmId]
+    );
+
+    if (leadCheck.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found or not assigned to this RM.",
+      });
+    }
+
+    const lead = leadCheck[0];
+
+    // 🔹 Remove old screenshot if exists
+    if (lead.new_client_call_screenshot && fs.existsSync(lead.new_client_call_screenshot)) {
+      fs.unlinkSync(lead.new_client_call_screenshot);
+    }
+
+    // 🔹 Update DB with new call status
+    await dhanDB.execute(
+      `
+      UPDATE leads
+      SET 
+        new_client_call_status = ?,
+        new_client_call_screenshot = ?,
+        new_client_request_status = 'requested',
+        new_client_approval_status = 'pending',
+        new_client_action_status = 'sent',
+        new_client_requested_at = NOW()
+      WHERE id = ?
+    `,
+      [call_status, screenshotPath, leadId]
+    );
+
+    return res.json({
+      success: true,
+      message: "Lead call status submitted for admin approval.",
+    });
+  } catch (err) {
+    console.error("Error submitting lead update:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
+  }
+};
+
+
+exports.submitBasicMsTeamsUpdate = async (req, res) => {
+  try {
+    const rmId = req.user.id;
+    const { leadId, ms_status } = req.body;
+    let screenshotPath = null;
+
+    if (!leadId || !ms_status) {
+      return res.status(400).json({
+        success: false,
+        message: "Lead ID and status are required.",
+      });
+    }
+
+    // ✅ If file uploaded, store screenshot
+    if (req.file) {
+      screenshotPath = path.join("uploads/basic_ms_teams", req.file.filename);
+    }
+
+    let requestStatus = null;
+    let actionStatus = "pending";
+
+    // ✅ If MS Teams Login Done → send request to admin
+    if (ms_status === "ms_teams_login_done") {
+      requestStatus = "requested";
+      actionStatus = "sent";
+    }
+
+    // ✅ Update lead record
+    await dhanDB.execute(
+      `
+      UPDATE leads
+      SET
+        new_client_basic_ms_status = ?,
+        new_client_basic_ms_screenshot = ?,
+        new_client_basic_ms_request_status = ?,
+        new_client_basic_ms_action_status = ?
+      WHERE id = ? AND assigned_to = ?
+    `,
+      [ms_status, screenshotPath, requestStatus, actionStatus, leadId, rmId]
+    );
+
+    // ✅ Response messages
+    if (ms_status === "ms_teams_login_done") {
+      return res.status(200).json({
+        success: true,
+        message:
+          "MS Teams Login Done — request sent to admin for approval successfully.",
+      });
+    } else {
+      return res.status(200).json({
+        success: true,
+        message: "Status updated successfully (Action Pending).",
+      });
+    }
+  } catch (error) {
+    console.error("Error in submitBasicMsTeamsUpdate:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while updating MS Teams status.",
+      error: error.message,
+    });
+  }
+};
+
+
+exports.mfClients = async (req, res) => {
+  try {
+    const rmId = req.user.id;
+    const stage = (req.query.stage || "").trim();
+    const subtab = (req.query.subtab || "").trim().toLowerCase(); // pending/actionable/reqsent/approved
+    const search = (req.query.search || "").trim().toLowerCase();
+    const batchCode = (req.query.batch_code || "").trim();
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+
+    if (!VALID_STAGE.has(stage)) {
+      return res.status(400).json({ success: false, message: "Invalid stage" });
+    }
+
+    const { status: S, approval: A } = STAGE_MAP[stage];
+
+    // Base (show ALL leads for this RM in this tab, except final approved SIP)
+    let base = ` FROM leads WHERE assigned_to = ? AND code_request_status = 'approved' AND (final_sip_approved IS NULL OR final_sip_approved <> 'yes') `;
+    const params = [rmId];
+
+    // Optional filters
+    if (batchCode) {
+      base += ` AND batch_code = ? `;
+      params.push(batchCode);
+    }
+    if (search) {
+      const kw = `%${search}%`;
+      base += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ?) `;
+      params.push(kw, kw);
+    }
+
+    // Subtab logic (per-stage)
+    if (subtab === "pending") {
+      base += ` AND ${S} IS NULL `;
+    } else if (subtab === "actionable") {
+      base += ` AND ( (${S} IS NOT NULL AND ${S} <> 'sip_done_converted') OR (${S} = 'sip_done_converted' AND ${A} = 'rejected') ) `;
+    } else if (subtab === "reqsent") {
+      base += ` AND ${S} = 'sip_done_converted' AND ${A} = 'pending' `;
+    } else if (subtab === "approved") {
+      base += ` AND ${S} = 'sip_done_converted' AND ${A} = 'approved' `;
+    }
+
+    // Count
+    const [[{ total }]] = await dhanDB.execute(`SELECT COUNT(*) as total ${base}`, params);
+    const totalPages = Math.max(1, Math.ceil((total || 0) / limit));
+
+    // Fetch (embed LIMIT/OFFSET as literals to avoid mysql2 binding errors)
+    const [rows] = await dhanDB.execute(
+      `SELECT id, name, mobile_number, whatsapp_mobile_number, batch_code, batch_code, ${S} AS stage_status, ${A} AS stage_approval 
+       ${base}
+       ORDER BY id DESC
+       LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+
+    return res.json({
+      success: true,
+      mfClients: rows,
+      totalMfClients: total || 0,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+  } catch (err) {
+    console.error("getStageLeads error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+// GET /mf/clients/approved-sip?search=&page=&limit=&batch_code=
+exports.getApprovedSip = async (req, res) => {
+  try {
+    const rmId = req.user.id;
+    const search = (req.query.search || "").trim().toLowerCase();
+    const batchCode = (req.query.batch_code || "").trim();
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+
+    let base = ` FROM leads WHERE assigned_to = ? AND code_request_status = 'approved' AND final_sip_approved = 'yes' `;
+    const params = [rmId];
+
+    if (batchCode) {
+      base += ` AND batch_code = ? `;
+      params.push(batchCode);
+    }
+    if (search) {
+      const kw = `%${search}%`;
+      base += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ?) `;
+      params.push(kw, kw);
+    }
+
+    const [[{ total }]] = await dhanDB.execute(`SELECT COUNT(*) as total ${base}`, params);
+    const totalPages = Math.max(1, Math.ceil((total || 0) / limit));
+
+    const [rows] = await dhanDB.execute(
+      `SELECT id, name, mobile_number, whatsapp_mobile_number, batch_code, batch_type
+       ${base}
+       ORDER BY id DESC
+       LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+
+    return res.json({
+      success: true,
+      mfClients: rows,
+      totalMfClients: total || 0,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+  } catch (err) {
+    console.error("getApprovedSip error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+
+// GET /mf/clients/approved-sip?search=&page=&limit=&batch_code=
+// POST /mf/submit (multipart/form-data if screenshot) 
+// body: { leadId, stage, status, note }
+exports.submitLeadSipConApproval = async (req, res) => {
+  try {
+    const rmId = req.user.id;
+    const { leadId, stage, status, note } = req.body;
+    const filePath = req.file ? req.file.path.replace(/\\/g, "/") : null;
+
+    if (!leadId || !stage || !status) {
+      return res.status(400).json({ success: false, message: "leadId, stage, status are required" });
+    }
+    if (!VALID_STAGE.has(stage)) {
+      return res.status(400).json({ success: false, message: "Invalid stage" });
+    }
+    if (!VALID_STATUS.has(status)) {
+      return res.status(400).json({ success: false, message: "Invalid status" });
+    }
+
+    const { status: S, approval: A, screenshot: P } = STAGE_MAP[stage];
+
+    // Ensure lead belongs to RM and is MF-approved
+    const [chk] = await dhanDB.execute(
+      `SELECT id, ${P} as oldShot FROM leads WHERE id = ? AND assigned_to = ? AND code_request_status = 'approved'`,
+      [leadId, rmId]
+    );
+    if (chk.length === 0) {
+      return res.status(404).json({ success: false, message: "Lead not found or not assigned" });
+    }
+    const oldShot = chk[0].oldShot;
+
+    if (status === "sip_done_converted") {
+      if (!filePath) {
+        return res.status(400).json({ success: false, message: "Screenshot required for SIP converted" });
+      }
+      // delete previous per-stage screenshot if exists
+      if (oldShot && fs.existsSync(oldShot)) {
+        try { fs.unlinkSync(oldShot); } catch(_) {}
+      }
+
+      const sql = `
+        UPDATE leads SET
+          ${S} = ?,
+          ${A} = 'pending',
+          ${P} = ?
+        WHERE id = ? AND assigned_to = ?
+      `;
+      await dhanDB.execute(sql, [status, filePath, leadId, rmId]);
+
+      return res.json({ success: true, message: "SIP converted sent for admin approval" });
+    }
+
+    // Non-SIP statuses → clear per-stage screenshot & approval to none
+    const sql = `
+      UPDATE leads SET
+        ${S} = ?,
+        ${A} = 'none',
+        ${P} = NULL
+      WHERE id = ? AND assigned_to = ?
+    `;
+    await dhanDB.execute(sql, [status, leadId, rmId]);
+
+    return res.json({ success: true, message: "Status updated" });
+  } catch (err) {
+    console.error("submitLeadUpdate error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+// GET /mf/clients/approved-sip?search=&page=&limit=&batch_code=
+exports.getApprovedSip = async (req, res) => {
+  try {
+    const rmId = req.user.id;
+    const search = (req.query.search || "").trim().toLowerCase();
+    const batchCode = (req.query.batch_code || "").trim();
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+
+    let base = ` FROM leads WHERE assigned_to = ? AND code_request_status = 'approved' AND final_sip_approved = 'yes' `;
+    const params = [rmId];
+
+    if (batchCode) {
+      base += ` AND batch_code = ? `;
+      params.push(batchCode);
+    }
+    if (search) {
+      const kw = `%${search}%`;
+      base += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ?) `;
+      params.push(kw, kw);
+    }
+
+    const [[{ total }]] = await dhanDB.execute(`SELECT COUNT(*) as total ${base}`, params);
+    const totalPages = Math.max(1, Math.ceil((total || 0) / limit));
+
+    const [rows] = await dhanDB.execute(
+      `SELECT id, name, mobile_number, whatsapp_mobile_number, batch_code, batch_type
+       ${base}
+       ORDER BY id DESC
+       LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+
+    return res.json({
+      success: true,
+      mfClients: rows,
+      totalMfClients: total || 0,
+      totalPages,
+      currentPage: page,
+      perPage: limit,
+    });
+  } catch (err) {
+    console.error("getApprovedSip error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
