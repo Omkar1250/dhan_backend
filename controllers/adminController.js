@@ -2053,44 +2053,72 @@ exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const offset = (page - 1) * limit;
-    const search = req.query.search || "";
 
-    // Build WHERE clause and queryParams array
-    let whereClause = `WHERE code_request_status = 'approved' AND ms_details_sent ='pending'`;
+    const search = (req.query.search || "").trim().toLowerCase();
+    const batchCode = (req.query.batch_code || "").trim();
+
+    // Base WHERE clause
+    let whereClause = `
+      WHERE l.code_request_status = 'approved'
+      AND l.ms_details_sent = 'pending'
+    `;
+
     const queryParams = [];
 
+    // Batch Filter
+    if (batchCode) {
+      whereClause += ` AND l.batch_code = ? `;
+      queryParams.push(batchCode);
+    }
+
+    // Search Filter
     if (search) {
-      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR LOWER(whatsapp_mobile_number) LIKE ?)`;
-      const keyword = `%${search.toLowerCase()}%`;
+      whereClause += `
+        AND (
+          LOWER(l.name) LIKE ? 
+          OR LOWER(l.mobile_number) LIKE ? 
+          OR LOWER(l.whatsapp_mobile_number) LIKE ?
+        )
+      `;
+      const keyword = `%${search}%`;
       queryParams.push(keyword, keyword, keyword);
     }
 
-    // Count total matching records
+    // Count Query
     const [countResult] = await dhanDB.execute(
-      `SELECT COUNT(*) AS total FROM leads ${whereClause}`,
+      `SELECT COUNT(*) AS total 
+       FROM leads l 
+       ${whereClause}`,
       queryParams
     );
+
     const totalMsLeads = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalMsLeads / limit);
 
-    // Fetch paginated results
+    // Fetch Data with RM + JRM Name
     const fetchQuery = `
-      SELECT id, name, mobile_number, whatsapp_mobile_number, batch_code,
-             created_at, code_approved_at
-      FROM leads
+      SELECT 
+        l.id, 
+        l.name, 
+        l.mobile_number, 
+        l.whatsapp_mobile_number, 
+        l.batch_code,
+        l.created_at, 
+        l.code_approved_at,
+
+        rm.name AS rm_name,
+        jrm.name AS jrm_name
+
+      FROM leads l
+      LEFT JOIN myapp.rm rm ON rm.id = l.assigned_to
+      LEFT JOIN myapp.users jrm ON jrm.id = l.referred_by_rm
+
       ${whereClause}
-      ORDER BY code_approved_at ASC
+      ORDER BY l.code_approved_at ASC
       LIMIT ${limit} OFFSET ${offset}
     `;
 
     const [msLeads] = await dhanDB.execute(fetchQuery, queryParams);
-
-    if (msLeads.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No leads found.",
-      });
-    }
 
     return res.status(200).json({
       success: true,
@@ -2101,6 +2129,7 @@ exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
       currentPage: page,
       perPage: limit,
     });
+
   } catch (err) {
     console.error("Error fetching MS Teams leads for admin:", err);
     return res.status(500).json({
@@ -2351,33 +2380,66 @@ exports.fetchAdvanceMsTeamsLeadsForAdmin = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const offset = (page - 1) * limit;
-    const search = req.query.search || "";
 
-    // Build WHERE clause and queryParams array
-    let whereClause = `WHERE code_request_status = 'approved' AND advance_msteams_details_sent ='pending'`;
+    const search = (req.query.search || "").trim().toLowerCase();
+    const batchCode = (req.query.batch_code || "").trim();
+
+    // Base WHERE clause
+    let whereClause = `
+      WHERE l.code_request_status = 'approved'
+      AND l.advance_msteams_details_sent = 'pending'
+    `;
+
     const queryParams = [];
 
+    // Batch Filter
+    if (batchCode) {
+      whereClause += ` AND l.batch_code = ? `;
+      queryParams.push(batchCode);
+    }
+
+    // Search Filter
     if (search) {
-      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR LOWER(whatsapp_mobile_number) LIKE ?)`;
-      const keyword = `%${search.toLowerCase()}%`;
+      whereClause += ` 
+        AND (
+          LOWER(l.name) LIKE ? 
+          OR LOWER(l.mobile_number) LIKE ? 
+          OR LOWER(l.whatsapp_mobile_number) LIKE ?
+        )`;
+      const keyword = `%${search}%`;
       queryParams.push(keyword, keyword, keyword);
     }
 
-    // Count total matching records
+    // Count Query
     const [countResult] = await dhanDB.execute(
-      `SELECT COUNT(*) AS total FROM leads ${whereClause}`,
+      `SELECT COUNT(*) AS total FROM leads l ${whereClause}`,
       queryParams
     );
+
     const totalAdvanceMsLeads = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalAdvanceMsLeads / limit);
 
-    // Fetch paginated results
+    // Fetch Data Query with RM + JRM name
     const fetchQuery = `
-      SELECT id, name, mobile_number, whatsapp_mobile_number, batch_code,
-             created_at, code_approved_at
-      FROM leads
+      SELECT 
+        l.id, 
+        l.name, 
+        l.mobile_number, 
+        l.whatsapp_mobile_number, 
+        l.batch_code,
+        l.created_at, 
+        l.code_approved_at,
+
+        rm.name AS rm_name,
+        jrm.name AS jrm_name
+
+      FROM leads l
+
+      LEFT JOIN myapp.rm rm ON rm.id = l.assigned_to
+      LEFT JOIN myapp.users jrm ON jrm.id = l.referred_by_rm
+
       ${whereClause}
-      ORDER BY code_approved_at ASC
+      ORDER BY l.code_approved_at ASC
       LIMIT ${limit} OFFSET ${offset}
     `;
 
@@ -2392,15 +2454,16 @@ exports.fetchAdvanceMsTeamsLeadsForAdmin = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "MS Teams leads fetched successfully.",
+      message: "Advance MS Teams leads fetched successfully.",
       totalAdvanceMsLeads,
       advanceMsLeads,
       totalPages,
       currentPage: page,
       perPage: limit,
     });
+
   } catch (err) {
-    console.error("Error fetching MS Teams leads for admin:", err);
+    console.error("Error fetching Advance MS Teams leads:", err);
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -2408,6 +2471,9 @@ exports.fetchAdvanceMsTeamsLeadsForAdmin = async (req, res) => {
     });
   }
 };
+
+
+
 
 
 
@@ -2822,46 +2888,70 @@ exports.fetchAdvanceOldClientLeadsForMsTeams = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const offset = (page - 1) * limit;
-    const search = req.query.search || "";
 
-    // Updated WHERE clause to include batch_type = 'basic'
-   let whereClause = `
-  WHERE old_code_request_status = 'approved'
-  AND advance_ms_clients_msdetails = 'pending'
-  AND (batch_type = 'advance' OR batch_type = 'both')
-`;
+    const search = (req.query.search || "").trim().toLowerCase();
+    const batchCode = (req.query.batch_code || "").trim();
+
+    // WHERE CLAUSE
+    let whereClause = `
+      WHERE a.old_code_request_status = 'approved'
+      AND a.advance_ms_clients_msdetails = 'pending'
+      AND (a.batch_type = 'advance' OR a.batch_type = 'both')
+    `;
 
     const queryParams = [];
 
+    // BATCH FILTER
+    if (batchCode) {
+      whereClause += ` AND a.batch_code = ? `;
+      queryParams.push(batchCode);
+    }
+
+    // SEARCH FILTER
     if (search) {
       whereClause += `
         AND (
-          LOWER(account_opening_name) LIKE ?
-          OR LOWER(mobile_number) LIKE ?
-          OR LOWER(whatsapp_number) LIKE ?
+          LOWER(a.account_opening_name) LIKE ?
+          OR LOWER(a.mobile_number) LIKE ?
+          OR LOWER(a.whatsapp_number) LIKE ?
         )
       `;
-      const keyword = `%${search.toLowerCase()}%`;
+      const keyword = `%${search}%`;
       queryParams.push(keyword, keyword, keyword);
     }
 
-    // Count total matching records
+    // COUNT QUERY
     const [countResult] = await dhanDB.execute(
-      `SELECT COUNT(*) AS total FROM advance_batch ${whereClause}`,
+      `SELECT COUNT(*) AS total FROM advance_batch a ${whereClause}`,
       queryParams
     );
+
     const totalOldAdvanceMsLeads = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalOldAdvanceMsLeads / limit);
 
-    // Fetch paginated results
+    // FETCH QUERY (WITH RM + JRM)
     const fetchQuery = `
-      SELECT id, account_opening_name, mobile_number, whatsapp_number,
-             batch_code, batch_type, old_code_approved_at
-      FROM advance_batch
+      SELECT 
+        a.id,
+        a.account_opening_name,
+        a.mobile_number,
+        a.whatsapp_number,
+        a.batch_code,
+        a.batch_type,
+        a.old_code_approved_at,
+
+        rm.name AS rm_name
+      
+
+      FROM advance_batch a
+      LEFT JOIN myapp.users rm ON rm.id = a.refer_by
+    
+
       ${whereClause}
-      ORDER BY old_code_approved_at ASC
+      ORDER BY a.old_code_approved_at ASC
       LIMIT ${limit} OFFSET ${offset}
     `;
+
     const [oldAdvanceMsLeads] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (oldAdvanceMsLeads.length === 0) {
@@ -2873,7 +2963,7 @@ exports.fetchAdvanceOldClientLeadsForMsTeams = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Basic MS Teams leads fetched successfully.",
+      message: "Advance MS Teams leads fetched successfully.",
       totalOldAdvanceMsLeads,
       oldAdvanceMsLeads,
       totalPages,
