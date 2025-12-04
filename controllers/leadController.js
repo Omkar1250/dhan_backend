@@ -2382,43 +2382,66 @@ exports.requestAdvanceBatchMsTeamsLogin = async (req, res) => {
 //My Clients for call after basic_ms details send
 exports.jrmCodedAllMyClients = async (req, res) => {
   try {
-    const rmId = req.user.id;
+    const jrmId = req.user.id;  // this is JRM ID (fetched_by)
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 5;
     const offset = (page - 1) * limit;
-    const search = req.query.search || ""; // Search query for filtering leads
+    const search = (req.query.search || "").trim().toLowerCase();
 
-    // Base query components
-    const baseQuery = `FROM leads`;
-      let whereClause = `
-        WHERE fetched_by = ? 
-        AND code_request_status = 'approved' 
-       
-      `;
+    let whereClause = `
+      WHERE l.fetched_by = ?
+      AND l.code_request_status = 'approved'
+    `;
 
-      const queryParams = [rmId];
+    const queryParams = [jrmId];
 
-
-    // Add search conditions if a search query is provided
+    // SEARCH FILTER
     if (search) {
-      whereClause += ` AND (LOWER(name) LIKE ? OR LOWER(mobile_number) LIKE ? OR CAST(id AS CHAR) LIKE ?)`;
-      const keyword = `%${search.toLowerCase()}%`;
+      whereClause += `
+        AND (
+          LOWER(l.name) LIKE ?
+          OR LOWER(l.mobile_number) LIKE ?
+          OR CAST(l.id AS CHAR) LIKE ?
+        )
+      `;
+      const keyword = `%${search}%`;
       queryParams.push(keyword, keyword, keyword);
     }
 
-    // Count query to get total MS Teams or SIP approved leads
+    // COUNT QUERY
     const [totalResult] = await dhanDB.execute(
-      `SELECT COUNT(*) as total ${baseQuery}${whereClause}`,
+      `SELECT COUNT(*) AS total 
+       FROM leads l
+       ${whereClause}`,
       queryParams
     );
+
     const totalJrmLeadsAllMyClients = totalResult[0]?.total || 0;
     const totalPages = Math.ceil(totalJrmLeadsAllMyClients / limit);
 
-    // Fetch query to get paginated MS Teams or SIP approved leads
-    const fetchQuery = `SELECT * ${baseQuery}${whereClause} ORDER BY code_approved_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    // FETCH QUERY WITH RM + JRM NAME
+    const fetchQuery = `
+      SELECT 
+        l.*,
+
+        rm.name AS rm_name,
+        jrm.name AS jrm_name
+
+      FROM leads l
+
+      LEFT JOIN myapp.rm rm 
+        ON rm.id = l.assigned_to
+
+      LEFT JOIN myapp.users jrm 
+        ON jrm.id = l.fetched_by
+
+      ${whereClause}
+      ORDER BY l.code_approved_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+
     const [jrmLeadsAllMyClients] = await dhanDB.execute(fetchQuery, queryParams);
 
-    // If no approved leads are found, return a 404 response
     if (jrmLeadsAllMyClients.length === 0) {
       return res.status(404).json({
         success: false,
@@ -2426,7 +2449,6 @@ exports.jrmCodedAllMyClients = async (req, res) => {
       });
     }
 
-    // Return a successful response with approved leads data
     return res.status(200).json({
       success: true,
       message: "Clients fetched successfully.",
@@ -2436,9 +2458,9 @@ exports.jrmCodedAllMyClients = async (req, res) => {
       currentPage: page,
       perPage: limit,
     });
+
   } catch (error) {
     console.error("My clients:", error);
-    // Handle unexpected errors and return a 500 response
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -2446,7 +2468,6 @@ exports.jrmCodedAllMyClients = async (req, res) => {
     });
   }
 };
-
 
 
 

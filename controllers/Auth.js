@@ -553,7 +553,7 @@ exports.mainRmDelete = async (req, res) => {
 
 exports.getAllMainRm = async (req, res) => {
   try {
-    const [rows] = await myapp.execute('SELECT id, name, personal_number, ck_number, userid, upi_id, password, created_at FROM rm WHERE role = "mainRm"');
+  const [rows] = await myapp.execute('SELECT id, name, personal_number, ck_number, userid, upi_id,is_active, password, created_at FROM rm WHERE role = "mainRm"');
 
     res.status(200).json({
       success: true,
