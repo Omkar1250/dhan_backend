@@ -1488,35 +1488,60 @@ exports.getAllLeadsForAdmin = async (req, res) => {
     const offset = (page - 1) * limit;
     const search = req.query.search || "";
 
-    let baseQuery = `FROM leads LEFT JOIN myapp.users ON leads.fetched_by = users.id`;
+    // 🔗 Added RM join
+    let baseQuery = `
+      FROM leads
+      LEFT JOIN myapp.users ON leads.fetched_by = users.id
+      LEFT JOIN myapp.rm ON leads.assigned_to = rm.id
+    `;
+
     let whereClause = ` WHERE 1=1`;
     const queryParams = [];
 
     if (search) {
-      whereClause += ` AND (LOWER(leads.name) LIKE ? OR LOWER(leads.mobile_number) LIKE ? OR CAST(leads.id AS CHAR) LIKE ? OR LOWER(users.name) LIKE ?)`;
+      whereClause += `
+        AND (
+          LOWER(leads.name) LIKE ?
+          OR LOWER(leads.mobile_number) LIKE ?
+          OR CAST(leads.id AS CHAR) LIKE ?
+          OR LOWER(users.name) LIKE ?
+          OR LOWER(rm.name) LIKE ?
+        )
+      `;
       const keyword = `%${search.toLowerCase()}%`;
-      queryParams.push(keyword, keyword, keyword, keyword);
+      queryParams.push(keyword, keyword, keyword, keyword, keyword);
     }
 
-    // Count query
+    // 🔢 Count query
     const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
+
     const totalTrailList = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalTrailList / limit);
 
-    // Fetch query with JRM name
+    // 📥 Fetch query (JRM + RM both)
     const fetchQuery = `
-      SELECT leads.id, leads.name, leads.mobile_number, leads.whatsapp_mobile_number,
-             leads.under_us_status, leads.code_request_status, leads.aoma_request_status,
-             leads.activation_request_status, leads.ms_teams_request_status, leads.sip_request_status,
-             users.name AS jrm_name
+      SELECT
+        leads.id,
+        leads.name,
+        leads.mobile_number,
+        leads.whatsapp_mobile_number,
+        leads.under_us_status,
+        leads.code_request_status,
+        leads.aoma_request_status,
+        leads.activation_request_status,
+        leads.ms_teams_request_status,
+        leads.sip_request_status,
+        users.name AS jrm_name,
+        rm.name AS rm_name
       ${baseQuery}
       ${whereClause}
       ORDER BY leads.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
+
     const [trails] = await dhanDB.execute(fetchQuery, queryParams);
 
     if (trails.length === 0) {
@@ -1537,13 +1562,15 @@ exports.getAllLeadsForAdmin = async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching leads:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Internal Server Error",
       error: err.message,
     });
   }
 };
+
+
 
 
 

@@ -2273,28 +2273,56 @@ exports.getAllLeadsForRM = async (req, res) => {
       });
     }
 
-    let baseQuery = `FROM leads LEFT JOIN users ON leads.fetched_by = users.id`;
-    let whereClause = ` WHERE (LOWER(leads.name) LIKE ? OR LOWER(leads.mobile_number) LIKE ? OR CAST(leads.id AS CHAR) LIKE ? OR LOWER(users.name) LIKE ?)`;
-    const keyword = `%${search.toLowerCase()}%`;
-    const queryParams = [keyword, keyword, keyword, keyword];
+    // 🔗 Added RM join
+    let baseQuery = `
+      FROM leads
+      LEFT JOIN myapp.users ON leads.fetched_by = users.id
+      LEFT JOIN myapp.rm ON leads.assigned_to = rm.id
+    `;
 
+    let whereClause = `
+      WHERE (
+        LOWER(leads.name) LIKE ?
+        OR LOWER(leads.mobile_number) LIKE ?
+        OR CAST(leads.id AS CHAR) LIKE ?
+        OR LOWER(users.name) LIKE ?
+        OR LOWER(rm.name) LIKE ?
+      )
+    `;
+
+    const keyword = `%${search.toLowerCase()}%`;
+    const queryParams = [keyword, keyword, keyword, keyword, keyword];
+
+    // 🔢 Count
     const [countResult] = await dhanDB.execute(
       `SELECT COUNT(*) AS total ${baseQuery}${whereClause}`,
       queryParams
     );
+
     const totalClientsForRmList = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalClientsForRmList / limit);
 
+    // 📥 Fetch data
     const fetchQuery = `
-      SELECT leads.id, leads.name, leads.mobile_number, leads.whatsapp_mobile_number,
-             leads.under_us_status, leads.code_request_status, leads.aoma_request_status,
-             leads.activation_request_status, leads.ms_teams_request_status, leads.sip_request_status,
-             users.name AS jrm_name
+      SELECT
+        leads.id,
+        leads.name,
+        leads.mobile_number,
+        leads.whatsapp_mobile_number,
+        leads.under_us_status,
+        leads.code_request_status,
+        leads.aoma_request_status,
+        leads.activation_request_status,
+        leads.ms_teams_request_status,
+        leads.sip_request_status,
+        users.name AS jrm_name,
+        rm.name AS rm_name
       ${baseQuery}
       ${whereClause}
       ORDER BY leads.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
+
     const [ClientsForRm] = await dhanDB.execute(fetchQuery, queryParams);
 
     return res.status(200).json({
@@ -2308,14 +2336,13 @@ exports.getAllLeadsForRM = async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching leads:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Internal Server Error",
       error: err.message,
     });
   }
 };
-
 
 //Request advance msteams login
 exports.requestAdvanceBatchMsTeamsLogin = async (req, res) => {
