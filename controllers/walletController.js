@@ -92,15 +92,15 @@ exports.getPaymentsOverview = async (req, res) => {
           LOWER(wt.action) LIKE ? OR
           LOWER(
             CASE
-              WHEN wt.lead_source = 'myapp'  THEN ml.name
-              WHEN wt.lead_source = 'dhanDB' THEN dl.name
+              WHEN wt.lead_source = 'proangleone'  THEN ml.name
+              WHEN wt.lead_source = 'elitedhan' THEN dl.name
               ELSE COALESCE(ml.name, dl.name)
             END
           ) LIKE ? OR
           (
             CASE
-              WHEN wt.lead_source = 'myapp'  THEN ml.mobile_number
-              WHEN wt.lead_source = 'dhanDB' THEN dl.mobile_number
+              WHEN wt.lead_source = 'proangleone'  THEN ml.mobile_number
+              WHEN wt.lead_source = 'elitedhan' THEN dl.mobile_number
               ELSE COALESCE(ml.mobile_number, dl.mobile_number)
             END
           ) LIKE ?
@@ -117,7 +117,7 @@ exports.getPaymentsOverview = async (req, res) => {
       SELECT COUNT(*) AS total
       FROM myapp.wallet_transactions wt
       LEFT JOIN myapp.leads  ml ON wt.lead_id = ml.id
-      LEFT JOIN dhanDB.leads dl ON wt.lead_id = dl.id
+      LEFT JOIN elitedhan.leads dl ON wt.lead_id = dl.id
       WHERE ${whereSql}
       `,
       whereParams
@@ -147,20 +147,20 @@ exports.getPaymentsOverview = async (req, res) => {
         wt.created_at,
 
         CASE
-          WHEN wt.lead_source = 'myapp'  THEN ml.name
-          WHEN wt.lead_source = 'dhanDB' THEN dl.name
+          WHEN wt.lead_source = 'proangleone'  THEN ml.name
+          WHEN wt.lead_source = 'elitedhan' THEN dl.name
           ELSE COALESCE(ml.name, dl.name)
         END AS lead_name,
 
         CASE
-          WHEN wt.lead_source = 'myapp'  THEN ml.mobile_number
-          WHEN wt.lead_source = 'dhanDB' THEN dl.mobile_number
+          WHEN wt.lead_source = 'proangleone'  THEN ml.mobile_number
+          WHEN wt.lead_source = 'elitedhan' THEN dl.mobile_number
           ELSE COALESCE(ml.mobile_number, dl.mobile_number)
         END AS mobile_number
 
       FROM myapp.wallet_transactions wt
-      LEFT JOIN myapp.leads  ml ON wt.lead_id = ml.id
-      LEFT JOIN dhanDB.leads dl ON wt.lead_id = dl.id
+      LEFT JOIN proangleone.leads  ml ON wt.lead_id = ml.id
+      LEFT JOIN elitedhan.leads dl ON wt.lead_id = dl.id
       WHERE ${whereSql}
       ORDER BY wt.created_at DESC, wt.id DESC
       LIMIT ${limit} OFFSET ${offset}
