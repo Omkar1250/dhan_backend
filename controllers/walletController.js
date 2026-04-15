@@ -115,8 +115,8 @@ exports.getPaymentsOverview = async (req, res) => {
     const [totalResult] = await myapp.execute(
       `
       SELECT COUNT(*) AS total
-      FROM myapp.wallet_transactions wt
-      LEFT JOIN myapp.leads  ml ON wt.lead_id = ml.id
+      FROM proangleone.wallet_transactions wt
+      LEFT JOIN proangleone.leads  ml ON wt.lead_id = ml.id
       LEFT JOIN elitedhan.leads dl ON wt.lead_id = dl.id
       WHERE ${whereSql}
       `,
@@ -128,7 +128,7 @@ exports.getPaymentsOverview = async (req, res) => {
     // TOTAL POINTS
     const [totalPointsResult] = await myapp.execute(
       `SELECT COALESCE(SUM(points), 0) AS totalPoints
-       FROM myapp.wallet_transactions
+       FROM proangleone.wallet_transactions
        WHERE user_id = ?`,
       [rmId]
     );
@@ -158,7 +158,7 @@ exports.getPaymentsOverview = async (req, res) => {
           ELSE COALESCE(ml.mobile_number, dl.mobile_number)
         END AS mobile_number
 
-      FROM myapp.wallet_transactions wt
+      FROM proangleone.wallet_transactions wt
       LEFT JOIN proangleone.leads  ml ON wt.lead_id = ml.id
       LEFT JOIN elitedhan.leads dl ON wt.lead_id = dl.id
       WHERE ${whereSql}
