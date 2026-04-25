@@ -1491,8 +1491,8 @@ exports.getAllLeadsForAdmin = async (req, res) => {
     // 🔗 Added RM join
     let baseQuery = `
       FROM leads
-      LEFT JOIN proangleone.users ON leads.fetched_by = users.id
-      LEFT JOIN proangleone.rm ON leads.assigned_to = rm.id
+      LEFT JOIN proangelone.users ON leads.fetched_by = users.id
+      LEFT JOIN proangelone.rm ON leads.assigned_to = rm.id
     `;
 
     let whereClause = ` WHERE 1=1`;
@@ -2137,8 +2137,8 @@ exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
         jrm.name AS jrm_name
 
       FROM leads l
-      LEFT JOIN myapp.rm rm ON rm.id = l.assigned_to
-      LEFT JOIN myapp.users jrm ON jrm.id = l.referred_by_rm
+      LEFT JOIN proangelone.rm rm ON rm.id = l.assigned_to
+      LEFT JOIN proangelone.users jrm ON jrm.id = l.referred_by_rm
 
       ${whereClause}
       ORDER BY l.code_approved_at ASC
