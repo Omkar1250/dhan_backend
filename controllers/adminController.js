@@ -1491,8 +1491,8 @@ exports.getAllLeadsForAdmin = async (req, res) => {
     // 🔗 Added RM join
     let baseQuery = `
       FROM leads
-      LEFT JOIN proangelone.users ON leads.fetched_by = users.id
-      LEFT JOIN proangelone.rm ON leads.assigned_to = rm.id
+      LEFT JOIN proangleone.users ON leads.fetched_by = users.id
+      LEFT JOIN proangleone.rm ON leads.assigned_to = rm.id
     `;
 
     let whereClause = ` WHERE 1=1`;
