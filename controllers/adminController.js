@@ -2137,8 +2137,8 @@ exports.fetchMsTeamsLeadsForAdmin = async (req, res) => {
         jrm.name AS jrm_name
 
       FROM leads l
-      LEFT JOIN proangelone.rm rm ON rm.id = l.assigned_to
-      LEFT JOIN proangelone.users jrm ON jrm.id = l.referred_by_rm
+      LEFT JOIN proangleone.rm rm ON rm.id = l.assigned_to
+      LEFT JOIN proangleone.users jrm ON jrm.id = l.referred_by_rm
 
       ${whereClause}
       ORDER BY l.code_approved_at ASC
